@@ -35,51 +35,48 @@ class EmojiView @JvmOverloads constructor(
     private val theme = Themes.Amoled
     private val density = resources.displayMetrics.density
 
-    // Top toolbar Drawables & bounds
+    // Top toolbar Drawables & bounds - Pure bright white icons matching main keyboard shortcuts toolbar
     private val hubIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_hub_monogram)?.mutate()?.apply {
-        setTint(0xFF8E95A5.toInt())
+        setTint(0xFFFFFFFF.toInt())
     }
     private val emojiIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_sentiment_satisfied)?.mutate()?.apply {
-        setTint(0xFFFFFFFF.toInt()) // Highlighted as active
+        setTint(0xFFFFFFFF.toInt())
     }
     private val micIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_mic)?.mutate()?.apply {
-        setTint(0xFF8E95A5.toInt())
+        setTint(0xFFFFFFFF.toInt())
     }
     private val cursorIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_text_cursor)?.mutate()?.apply {
-        setTint(0xFF8E95A5.toInt())
+        setTint(0xFFFFFFFF.toInt())
     }
     private val clipboardIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_content_paste)?.mutate()?.apply {
-        setTint(0xFF8E95A5.toInt())
+        setTint(0xFFFFFFFF.toInt())
     }
     private val hideIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_keyboard_arrow_down)?.mutate()?.apply {
-        setTint(0xFF8E95A5.toInt())
+        setTint(0xFFFFFFFF.toInt())
     }
     private val backspaceIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_backspace)?.mutate()?.apply {
-        setTint(theme.keyText)
+        setTint(0xFFFFFFFF.toInt())
     }
     private val closeIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_close)?.mutate()?.apply {
-        setTint(theme.keyText)
+        setTint(0xFFFFFFFF.toInt())
     }
     private val starIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_star)?.mutate()?.apply {
         setTint(theme.keyAccent)
     }
 
-    // Paints
-    private val bgPaint = Paint().apply { color = theme.background }
-    private val toolbarBarBgPaint = Paint().apply {
-        color = 0xFF0D1117.toInt()
+    // Paints matching KeyboardView shortcuts toolbar exactly
+    private val bgPaint = Paint().apply { color = 0xFF000000.toInt() }
+    private val toolbarBarBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF050B14.toInt()
         style = Paint.Style.FILL
     }
     private val toolbarBarBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF00E5FF.toInt() // Neon cyan border matching keyboard
+        color = 0xFF00E5FF.toInt() // Neon cyan border
         style = Paint.Style.STROKE
     }
-    private val toolbarDividerPaint = Paint().apply {
-        color = 0x3300E5FF.toInt()
-    }
-    private val activeIconHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF1E3F42.toInt() // Dark teal highlight for active emoji icon
-        style = Paint.Style.FILL
+    private val toolbarDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF00E5FF.toInt() // Solid neon cyan vertical divider matching keyboard
+        strokeCap = Paint.Cap.ROUND
     }
     private val cardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = theme.keyBackground
@@ -90,7 +87,7 @@ class EmojiView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val cardBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x3300E5FF.toInt()
+        color = 0x2200E5FF.toInt()
         style = Paint.Style.STROKE
         strokeWidth = 1f * density
     }
@@ -98,13 +95,13 @@ class EmojiView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
     private val bottomBarTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = theme.keyText
+        color = 0xFFFFFFFF.toInt()
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
         textSize = 15f * density
     }
     private val bottomBarSubtlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = theme.suggestionText
+        color = 0xFFD8DCE5.toInt()
         textAlign = Paint.Align.CENTER
         textSize = 14f * density
     }
@@ -119,10 +116,9 @@ class EmojiView @JvmOverloads constructor(
 
     private var pressedKey: String? = null
 
-    // Dimensions
-    private val toolbarHeight = 44f * density
-    private val bottomBarHeight = 46f * density
-    private val cardCornerRadius = 10f * density
+    // Dimensions matching main keyboard
+    private val toolbarHeight = 42f * density
+    private val bottomBarHeight = 44f * density
 
     // Shortcut emojis exclusively
     private val shortcutEmojis = EmojiCatalog.shortcutValues
@@ -171,7 +167,7 @@ class EmojiView @JvmOverloads constructor(
         val barRadius = 12f * density
         toolbarBarRect.set(barMarginH, barTop, w - barMarginH, barBottom)
 
-        // Toolbar background
+        // Toolbar background (dark midnight)
         canvas.drawRoundRect(toolbarBarRect, barRadius, barRadius, toolbarBarBgPaint)
 
         // Neon cyan border
@@ -189,7 +185,7 @@ class EmojiView @JvmOverloads constructor(
         val iconCount = icons.size
         val slotWidth = toolbarBarRect.width() / iconCount.toFloat()
 
-        // Divider lines between slots
+        // Solid neon cyan divider lines between slots
         toolbarDividerPaint.strokeWidth = 1.5f * density
         val dividerHalfH = 10.5f * density
         val dividerCenterY = toolbarBarRect.centerY()
@@ -210,19 +206,6 @@ class EmojiView @JvmOverloads constructor(
             )
             toolbarBounds[action] = hitRect
 
-            // Emoji icon (index 1) is highlighted with dark teal background as active tool
-            if (action == "emoji") {
-                val boxWidth = slotWidth * 0.76f
-                val boxHeight = (barBottom - barTop) * 0.76f
-                val highlightRect = RectF(
-                    centerX - boxWidth / 2f,
-                    centerY - boxHeight / 2f,
-                    centerX + boxWidth / 2f,
-                    centerY + boxHeight / 2f
-                )
-                canvas.drawRoundRect(highlightRect, 8f * density, 8f * density, activeIconHighlightPaint)
-            }
-
             if (drawable != null) {
                 val iconSize = when (action) {
                     "cursor", "hide" -> (25f * density).toInt()
@@ -239,17 +222,18 @@ class EmojiView @JvmOverloads constructor(
     private fun drawEmojiGrid(canvas: Canvas, w: Float, top: Float, bottom: Float) {
         emojiCardBounds.clear()
         val availableHeight = (bottom - top).coerceAtLeast(10f)
-        val marginH = 8f * density
-        val gap = 6f * density
         val columns = 6
         val rows = 2
-        val cardWidth = (w - (marginH * 2f) - (gap * (columns - 1))) / columns.toFloat()
-        val maxCardHeight = 52f * density
-        val cardHeight = minOf(maxCardHeight, (availableHeight - (gap * (rows - 1))) / rows.toFloat())
-        val emojiFontSize = 22f * density
+        val gap = 6f * density
+        val maxKeyWidth = 48f * density
+        val keyWidth = minOf(maxKeyWidth, (w - (16f * density) - (gap * (columns - 1))) / columns.toFloat())
+        val keyHeight = 39f * density
+        val emojiFontSize = 21f * density
         emojiTextPaint.textSize = emojiFontSize
 
-        val totalGridHeight = (cardHeight * rows) + (gap * (rows - 1))
+        val totalGridWidth = (keyWidth * columns) + (gap * (columns - 1))
+        val startX = (w - totalGridWidth) / 2f
+        val totalGridHeight = (keyHeight * rows) + gap
         val startY = top + ((availableHeight - totalGridHeight) / 2f).coerceAtLeast(0f)
 
         shortcutEmojis.forEachIndexed { index, emoji ->
@@ -257,15 +241,15 @@ class EmojiView @JvmOverloads constructor(
             val row = index / columns
             if (row >= rows) return@forEachIndexed
 
-            val left = marginH + (col * (cardWidth + gap))
-            val cardTop = startY + (row * (cardHeight + gap))
-            val rect = RectF(left, cardTop, left + cardWidth, cardTop + cardHeight)
+            val left = startX + (col * (keyWidth + gap))
+            val cardTop = startY + (row * (keyHeight + gap))
+            val rect = RectF(left, cardTop, left + keyWidth, cardTop + keyHeight)
             emojiCardBounds[emoji] = rect
 
             val isPressed = pressedKey == emoji
             val paint = if (isPressed) cardPressedPaint else cardBgPaint
 
-            // Draw rounded card
+            // Draw rounded standard keyboard key
             val radius = 8f * density
             canvas.drawRoundRect(rect, radius, radius, paint)
             canvas.drawRoundRect(rect, radius, radius, cardBorderPaint)

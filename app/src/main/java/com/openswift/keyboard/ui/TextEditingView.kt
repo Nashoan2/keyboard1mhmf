@@ -74,13 +74,12 @@ class TextEditingView @JvmOverloads constructor(
 
     private val density = resources.displayMetrics.density
 
-    // Colors matching screenshot #90
-    private val colorBg = 0xFF14171E.toInt() // Dark keyboard background
+    // Colors matching keyboard shortcuts bar and Amoled theme
+    private val colorBg = 0xFF000000.toInt() // Dark Amoled keyboard background
     private val colorKeyBg = 0xFF242831.toInt() // Dark slate key background
     private val colorKeyActiveBg = 0xFF1D3B3E.toInt() // Key active/selected
     private val colorTeal = 0xFF2DD4BF.toInt() // Vibrant cyan/teal
     private val colorTextWhite = 0xFFFFFFFF.toInt()
-    private val colorToolbarIcon = 0xFFD8DCE5.toInt()
 
     // Paints
     private val bgPaint = Paint().apply {
@@ -113,40 +112,37 @@ class TextEditingView @JvmOverloads constructor(
         color = colorTeal
         isFakeBoldText = true
     }
-    private val highlightBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF1E3F42.toInt() // Dark teal highlight for active toolbar icon
-        style = Paint.Style.FILL
-    }
-    private val toolbarBarBgPaint = Paint().apply {
-        color = 0xFF0D1117.toInt()
+    private val toolbarBarBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF050B14.toInt()
         style = Paint.Style.FILL
     }
     private val toolbarBarBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF00E5FF.toInt() // Neon cyan border matching keyboard shortcuts bar
         style = Paint.Style.STROKE
     }
-    private val toolbarDividerPaint = Paint().apply {
-        color = 0x3300E5FF.toInt()
+    private val toolbarDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF00E5FF.toInt() // Solid neon cyan vertical divider matching keyboard
+        strokeCap = Paint.Cap.ROUND
     }
 
-    // Top toolbar Drawables
+    // Top toolbar Drawables - Pure bright white matching KeyboardView
     private val hubIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_hub_monogram)?.mutate()?.apply {
-        setTint(colorToolbarIcon)
+        setTint(0xFFFFFFFF.toInt())
     }
     private val emojiIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_sentiment_satisfied)?.mutate()?.apply {
-        setTint(colorToolbarIcon)
+        setTint(0xFFFFFFFF.toInt())
     }
     private val micIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_mic)?.mutate()?.apply {
-        setTint(colorToolbarIcon)
+        setTint(0xFFFFFFFF.toInt())
     }
     private val cursorIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_text_cursor)?.mutate()?.apply {
         setTint(0xFFFFFFFF.toInt())
     }
     private val clipboardIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_content_paste)?.mutate()?.apply {
-        setTint(colorToolbarIcon)
+        setTint(0xFFFFFFFF.toInt())
     }
     private val hideIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_keyboard_arrow_down)?.mutate()?.apply {
-        setTint(colorToolbarIcon)
+        setTint(0xFFFFFFFF.toInt())
     }
 
     // Keypad Action Drawables (Cyan/Teal)
@@ -160,7 +156,7 @@ class TextEditingView @JvmOverloads constructor(
     private val keyBounds = mutableMapOf<Action, RectF>()
 
     // Dimensions
-    private val toolbarHeight = 44f * density
+    private val toolbarHeight = 42f * density
     private val keyCornerRadius = 6f * density
     private val keyPadding = 4f * density
 
@@ -235,19 +231,6 @@ class TextEditingView @JvmOverloads constructor(
                 barBottom
             )
             toolbarBounds[id] = slotRect
-
-            // Cursor icon (index 3) is actively highlighted with rounded dark teal box
-            if (id == "cursor") {
-                val boxWidth = slotWidth * 0.76f
-                val boxHeight = (barBottom - barTop) * 0.76f
-                val highlightRect = RectF(
-                    centerX - boxWidth / 2f,
-                    centerY - boxHeight / 2f,
-                    centerX + boxWidth / 2f,
-                    centerY + boxHeight / 2f
-                )
-                canvas.drawRoundRect(highlightRect, 8f * density, 8f * density, highlightBoxPaint)
-            }
 
             if (drawable != null) {
                 val size = when (id) {
@@ -468,17 +451,17 @@ class TextEditingView @JvmOverloads constructor(
                 }
 
                 // Check Keypad clicks
-                for ((action, rect) in keyBounds) {
-                    if (rect.contains(x, y)) {
-                        if (action == Action.CLIPBOARD) {
-                            onOpenClipboard?.invoke()
-                        } else if (action == Action.HOME) {
-                            onClose?.invoke() // "الصفحة الرئيسية" returns directly to keyboard
-                        } else if (action != Action.DELETE) {
-                            onAction?.invoke(action)
-                        }
-                        return true
+                val clickedAction = keyBounds.entries.firstOrNull { it.value.contains(x, y) }?.key ?: pressedAction
+                if (clickedAction != null) {
+                    if (clickedAction == Action.CLIPBOARD) {
+                        onOpenClipboard?.invoke()
+                    } else if (clickedAction == Action.HOME) {
+                        onClose?.invoke() // "الصفحة الرئيسية" returns directly to keyboard
+                        onAction?.invoke(Action.HOME)
+                    } else if (clickedAction != Action.DELETE) {
+                        onAction?.invoke(clickedAction)
                     }
+                    return true
                 }
                 return true
             }

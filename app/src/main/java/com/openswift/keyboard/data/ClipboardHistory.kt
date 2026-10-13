@@ -65,8 +65,11 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
                     List(arr.length()) { arr.getString(it) }
                 }.getOrDefault(emptyList())
             }
-            cachedItems = list
-            return list
+            // Exclude any items that are currently pinned from the unpinned items list
+            val pinned = pinnedSet()
+            val filtered = if (pinned.isNotEmpty()) list.filter { it !in pinned } else list
+            cachedItems = filtered
+            return filtered
         }
     }
 
@@ -75,6 +78,20 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
         if (deletedTimestamps.remove(text) != null) {
             persistDeletedItems()
         }
+
+        // If the text is already pinned, keep it pinned and do NOT add to unpinned items!
+        if (isPinned(text)) {
+            val unpinned = items()
+            if (text in unpinned) {
+                save(unpinned.filter { it != text })
+            }
+            val currentPinned = pinnedItems()
+            if (currentPinned.firstOrNull() != text) {
+                savePinned(listOf(text) + currentPinned.filter { it != text })
+            }
+            return false
+        }
+
         val current = items()
         val updated = withCapturedItem(current, text)
         if (updated == current) return false
@@ -173,6 +190,10 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
         val current = pinnedItems()
         if (text !in current) {
             savePinned(listOf(text) + current)
+        }
+        val currentUnpinned = items()
+        if (text in currentUnpinned) {
+            save(currentUnpinned.filter { it != text })
         }
     }
 

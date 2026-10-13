@@ -58,4 +58,41 @@ class ClipboardHistoryTest {
         assertTrue("Clipboard recent items should be empty", history.items().isEmpty())
         assertTrue("Clipboard pinned items should be empty", history.pinnedItems().isEmpty())
     }
+
+    @Test
+    fun pinnedItemIsNotDuplicatedIntoUnpinnedItemsWhenCopied() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("test_clipboard_pinned", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val history = ClipboardHistory(prefs)
+
+        history.pin("Pinned Greeting")
+        assertTrue(history.isPinned("Pinned Greeting"))
+        assertTrue("Pinned item should not be in unpinned items", "Pinned Greeting" !in history.items())
+
+        // Simulate user copying the pinned greeting text again
+        val added = history.add("Pinned Greeting")
+        assertFalse("Adding an already-pinned item returns false and should not add to unpinned", added)
+        assertTrue("Still pinned", history.isPinned("Pinned Greeting"))
+        assertTrue("Should still not appear in unpinned items", "Pinned Greeting" !in history.items())
+        assertEquals(listOf("Pinned Greeting"), history.pinnedItems())
+    }
+
+    @Test
+    fun multipleCopiedTextsArePreservedInOrder() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("test_clipboard_multi", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val history = ClipboardHistory(prefs)
+
+        history.add("First text from web")
+        history.add("Second text from WhatsApp")
+        history.add("Third text from notes")
+
+        val items = history.items()
+        assertEquals(3, items.size)
+        assertEquals("Third text from notes", items[0])
+        assertEquals("Second text from WhatsApp", items[1])
+        assertEquals("First text from web", items[2])
+    }
 }

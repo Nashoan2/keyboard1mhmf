@@ -322,8 +322,8 @@ class ClipboardView @JvmOverloads constructor(
         layoutCards.clear()
 
         val pinnedItems = clipboard.pinnedItems()
-        val recentItems = clipboard.items()
         val pinnedSet = clipboard.pinnedSet()
+        val recentItems = clipboard.items().filter { it !in pinnedSet }
 
         if (recentItems.isEmpty() && pinnedItems.isEmpty()) {
             val emptyCenterY = (h - headerHeight) / 2f + headerHeight
@@ -338,24 +338,7 @@ class ClipboardView @JvmOverloads constructor(
         val colWidth = totalAvailableWidth / 2f
         var curY = headerHeight + (10f * density)
 
-        // Section 1: الأحدث (Recent items) - Shown first
-        if (recentItems.isNotEmpty()) {
-            val sectionY = curY - scrollYOffset
-            if (sectionY + (24f * density) >= headerHeight && sectionY <= h) {
-                canvas.drawText("الأحدث", w - horizontalMargin, sectionY + (14f * density), sectionHeaderPaint)
-            }
-            curY += 24f * density
-
-            for (i in recentItems.indices step 2) {
-                val rightText = recentItems[i]
-                val leftText = recentItems.getOrNull(i + 1)
-                curY = recordAndDrawRow(canvas, w, curY, colWidth, rightText, leftText, false, h)
-                curY += gridGap
-            }
-            curY += 10f * density
-        }
-
-        // Section 2: العناصر المثبَّتة (Pinned items) - Shown below
+        // Section 1: العناصر المثبَّتة (Pinned items) - Shown at the TOP
         if (pinnedItems.isNotEmpty()) {
             val sectionY = curY - scrollYOffset
             if (sectionY + (24f * density) >= headerHeight && sectionY <= h) {
@@ -367,6 +350,23 @@ class ClipboardView @JvmOverloads constructor(
                 val rightText = pinnedItems[i]
                 val leftText = pinnedItems.getOrNull(i + 1)
                 curY = recordAndDrawRow(canvas, w, curY, colWidth, rightText, leftText, true, h)
+                curY += gridGap
+            }
+            curY += 10f * density
+        }
+
+        // Section 2: الأحدث (Recent items) - Shown below pinned items
+        if (recentItems.isNotEmpty()) {
+            val sectionY = curY - scrollYOffset
+            if (sectionY + (24f * density) >= headerHeight && sectionY <= h) {
+                canvas.drawText("الأحدث", w - horizontalMargin, sectionY + (14f * density), sectionHeaderPaint)
+            }
+            curY += 24f * density
+
+            for (i in recentItems.indices step 2) {
+                val rightText = recentItems[i]
+                val leftText = recentItems.getOrNull(i + 1)
+                curY = recordAndDrawRow(canvas, w, curY, colWidth, rightText, leftText, false, h)
                 curY += gridGap
             }
         }
@@ -641,12 +641,7 @@ class ClipboardView @JvmOverloads constructor(
         try {
             val activeSettings = settings ?: com.openswift.keyboard.data.Settings(context).also { settings = it }
             if (!activeSettings.hapticFeedback || activeSettings.powerSaveMode) return
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createOneShot(35, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(35)
-            }
+            performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
         } catch (_: Exception) {}
     }
 

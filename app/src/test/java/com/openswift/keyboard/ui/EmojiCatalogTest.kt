@@ -15,10 +15,10 @@ class EmojiCatalogTest {
     @Test
     fun searchMatchesKeywordsAcrossCategories() {
         val heart = EmojiCatalog.search("heart").map { it.value }
-        val travel = EmojiCatalog.search("rocket").map { it.value }
+        val hand = EmojiCatalog.search("pray").map { it.value }
 
         assertTrue("❤️" in heart)
-        assertTrue("🚀" in travel)
+        assertTrue("🙏" in hand)
     }
 
     @Test

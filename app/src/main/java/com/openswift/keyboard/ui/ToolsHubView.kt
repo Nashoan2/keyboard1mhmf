@@ -104,27 +104,27 @@ class ToolsHubView @JvmOverloads constructor(
         strokeWidth = 1.2f * density
     }
 
-    // Top toolbar Drawables
+    // Top toolbar Drawables - Pure bright white matching KeyboardView
     private val hubIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_hub_monogram)?.mutate()?.apply {
         setTint(0xFFFFFFFF.toInt())
     }
     private val emojiIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_sentiment_satisfied)?.mutate()?.apply {
-        setTint(colorToolbarIcon)
+        setTint(0xFFFFFFFF.toInt())
     }
     private val cursorIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_text_cursor)?.mutate()?.apply {
-        setTint(colorToolbarIcon)
+        setTint(0xFFFFFFFF.toInt())
     }
     private val clipboardIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_content_paste)?.mutate()?.apply {
-        setTint(colorToolbarIcon)
+        setTint(0xFFFFFFFF.toInt())
     }
     private val hideIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_keyboard_arrow_down)?.mutate()?.apply {
-        setTint(colorToolbarIcon)
+        setTint(0xFFFFFFFF.toInt())
     }
 
     // Tool Icons
     private val resizeIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_resize)?.mutate()?.apply { setTint(colorToolbarIcon) }
     private val themeIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_palette)?.mutate()?.apply { setTint(colorToolbarIcon) }
-    private val micIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_mic)?.mutate()?.apply { setTint(colorToolbarIcon) }
+    private val micIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_mic)?.mutate()?.apply { setTint(0xFFFFFFFF.toInt()) }
     private val translateIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_translate)?.mutate()?.apply { setTint(colorToolbarIcon) }
     private val globeIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_language)?.mutate()?.apply { setTint(colorToolbarIcon) }
 
@@ -140,20 +140,21 @@ class ToolsHubView @JvmOverloads constructor(
     private val toolbarBounds = mutableMapOf<String, RectF>()
     private val toolBounds = mutableMapOf<ToolId, RectF>()
 
-    private val toolbarBarBgPaint = Paint().apply {
-        color = 0xFF0D1117.toInt()
+    private val toolbarBarBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF050B14.toInt()
         style = Paint.Style.FILL
     }
     private val toolbarBarBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF00E5FF.toInt() // Neon cyan border matching keyboard shortcuts bar
         style = Paint.Style.STROKE
     }
-    private val toolbarDividerPaint = Paint().apply {
-        color = 0x3300E5FF.toInt()
+    private val toolbarDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF00E5FF.toInt()
+        strokeCap = Paint.Cap.ROUND
     }
 
     // Dimensions
-    private val toolbarHeight = 44f * density
+    private val toolbarHeight = 42f * density
     private val horizontalMargin = 12f * density
     private val colGap = 10f * density
     private val rowGap = 7f * density
@@ -235,18 +236,6 @@ class ToolsHubView @JvmOverloads constructor(
             )
             toolbarBounds[id] = slotRect
 
-            // Monogram icon (index 0) is actively highlighted
-            if (id == "hub") {
-                val boxWidth = slotWidth * 0.76f
-                val boxHeight = (barBottom - barTop) * 0.76f
-                val highlightRect = RectF(
-                    centerX - boxWidth / 2f,
-                    centerY - boxHeight / 2f,
-                    centerX + boxWidth / 2f,
-                    centerY + boxHeight / 2f
-                )
-                canvas.drawRoundRect(highlightRect, 8f * density, 8f * density, highlightBoxPaint)
-            }
 
             if (drawable != null) {
                 val size = when (id) {

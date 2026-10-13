@@ -801,10 +801,6 @@ class KeyboardView(
         }
 
         ripples.clear()
-        
-        if (!isPowerSaveMode && glideTrail.isNotEmpty()) {
-            postInvalidateOnAnimation()
-        }
 
         if (isLamAlefPopupVisible) {
             drawLamAlefPopup(canvas, w, h)
@@ -949,7 +945,7 @@ class KeyboardView(
                     if (!isPowerSaveMode && !settings.reducedMotion) {
                         // Append trail point for gradient fade
                         glideTrail.add(TrailPoint(event.x, event.y, System.currentTimeMillis()))
-                        postInvalidateOnAnimation()
+                        invalidate()
                     }
                 }
                 return true

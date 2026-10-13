@@ -84,10 +84,10 @@ class OpenSwiftIME : InputMethodService() {
     private var clipboardManager: android.content.ClipboardManager? = null
     private var isClipListenerRegistered = false
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
-        if (settings.clipboardEnabled && !privacyModeActive) {
+        if (settings.clipboardEnabled) {
             clipboard.onSystemClipChanged()
-            clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
-            clipboardView?.refresh()
+            clipboard.captureSystem(this, enabled = true, privateField = false)
+            clipboardView?.refresh(resetScrollPosition = false)
         }
     }
 
@@ -131,6 +131,9 @@ class OpenSwiftIME : InputMethodService() {
         vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
         Settings.encryptedPreferences(this).registerOnSharedPreferenceChangeListener(prefChangeListener)
         clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+        if (settings.clipboardEnabled) {
+            registerClipListenerIfNeeded()
+        }
     }
 
     override fun onCreateInputView(): View {
@@ -271,7 +274,7 @@ class OpenSwiftIME : InputMethodService() {
                 view.explicitHeightPx = keyboardView.getEffectiveHeightPx()
             }
             textEditingView = view
-            inputView = withNavigationBarInset(view, 0xFF14171E.toInt())
+            inputView = withNavigationBarInset(view, 0xFF000000.toInt())
             textEditingInputView = inputView
         }
         return inputView
@@ -294,7 +297,7 @@ class OpenSwiftIME : InputMethodService() {
                 view.explicitHeightPx = keyboardView.getEffectiveHeightPx()
             }
             toolsHubView = view
-            inputView = withNavigationBarInset(view, 0xFF14171E.toInt())
+            inputView = withNavigationBarInset(view, 0xFF000000.toInt())
             toolsHubInputView = inputView
         }
         return inputView
@@ -323,13 +326,13 @@ class OpenSwiftIME : InputMethodService() {
         }
         applyInputProfile()
         if (settings.clipboardEnabled) {
+            registerClipListenerIfNeeded()
             clipboard.captureSystem(
                 ctx = this,
                 enabled = true,
                 privateField = privacyModeActive
             )
-            clipboardView?.refresh()
-            registerClipListenerIfNeeded()
+            clipboardView?.refresh(resetScrollPosition = false)
         } else {
             unregisterClipListener()
         }
@@ -359,7 +362,7 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
-        unregisterClipListener()
+        privacyModeActive = false
         if (isListeningVoice) {
             stopVoiceTyping()
         }
@@ -379,7 +382,7 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onWindowHidden() {
         super.onWindowHidden()
-        unregisterClipListener()
+        privacyModeActive = false
         if (isListeningVoice) {
             stopVoiceTyping()
         }
@@ -532,18 +535,6 @@ class OpenSwiftIME : InputMethodService() {
                 am?.playSoundEffect(effect)
             } catch (_: Exception) {}
         }
-        if (settings.hapticFeedback && !isPowerSaveActive()) {
-            try {
-                if (vibrator.hasVibrator()) {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        vibrator.vibrate(android.os.VibrationEffect.createOneShot(20, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        vibrator.vibrate(20)
-                    }
-                }
-            } catch (_: Exception) {}
-        }
     }
 
     private fun commitWord(word: String) {
@@ -691,18 +682,32 @@ class OpenSwiftIME : InputMethodService() {
     }
 
     private fun showClipboardView() {
-        clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
+        registerClipListenerIfNeeded()
+        clipboard.captureSystem(this, enabled = true, privateField = false)
         clipboardMode = true
         val inputView = getOrCreateClipboardInputView()
         if (::keyboardView.isInitialized) {
             clipboardView?.explicitHeightPx = keyboardView.getEffectiveHeightPx()
         }
-        clipboardView?.refresh()
+        clipboardView?.refresh(resetScrollPosition = false)
         setInputView(inputView)
     }
 
     private fun showKeyboardView() {
+        emojiMode = false
+        clipboardMode = false
         setInputView(keyboardInputView)
+        if (::keyboardView.isInitialized) {
+            keyboardView.requestLayout()
+            keyboardView.invalidate()
+        }
+        if (::keyboardInputView.isInitialized) {
+            keyboardInputView.requestLayout()
+        }
+        window?.window?.decorView?.requestLayout()
+        try {
+            updateInputViewShown()
+        } catch (_: Exception) {}
     }
 
     private fun handleTextEditingAction(action: TextEditingView.Action) {
@@ -811,14 +816,6 @@ class OpenSwiftIME : InputMethodService() {
                 ic.performContextMenuAction(android.R.id.undo)
                 ic.sendKeyEvent(KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Z, 0, KeyEvent.META_CTRL_ON))
                 ic.sendKeyEvent(KeyEvent(0L, 0L, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_Z, 0, KeyEvent.META_CTRL_ON))
-            }
-        }
-        if (settings.hapticFeedback && !isPowerSaveActive()) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                vibrator.vibrate(android.os.VibrationEffect.createOneShot(20, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(20)
             }
         }
     }

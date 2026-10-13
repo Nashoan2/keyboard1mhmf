@@ -84,11 +84,25 @@ class OpenSwiftIME : InputMethodService() {
     private var clipboardManager: android.content.ClipboardManager? = null
     private var isClipListenerRegistered = false
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
-        if (settings.clipboardEnabled) {
-            clipboard.onSystemClipChanged()
-            clipboard.captureSystem(this, enabled = true, privateField = false)
-            clipboardView?.refresh(resetScrollPosition = false)
+        if (!isSelectedIme() || !settings.clipboardEnabled || !isInputViewShown) {
+            unregisterClipListener()
+            return@OnPrimaryClipChangedListener
         }
+        clipboard.onSystemClipChanged()
+        clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
+        clipboardView?.refresh(resetScrollPosition = false)
+    }
+
+    private fun isSelectedIme(): Boolean {
+        val defaultIme = try {
+            android.provider.Settings.Secure.getString(
+                contentResolver,
+                android.provider.Settings.Secure.DEFAULT_INPUT_METHOD
+            ).orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+        return defaultIme.contains(packageName)
     }
 
     private fun isPowerSaveActive(): Boolean {
@@ -98,7 +112,7 @@ class OpenSwiftIME : InputMethodService() {
     }
 
     private fun registerClipListenerIfNeeded() {
-        if (settings.clipboardEnabled && !isClipListenerRegistered) {
+        if (settings.clipboardEnabled && isSelectedIme() && !isClipListenerRegistered) {
             try {
                 if (clipboardManager == null) {
                     clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
@@ -134,9 +148,7 @@ class OpenSwiftIME : InputMethodService() {
         vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
         Settings.encryptedPreferences(this).registerOnSharedPreferenceChangeListener(prefChangeListener)
         clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-        if (settings.clipboardEnabled) {
-            registerClipListenerIfNeeded()
-        }
+        // Only register clip listener when keyboard window is actually shown to prevent background battery drain
     }
 
     override fun onCreateInputView(): View {
@@ -328,7 +340,7 @@ class OpenSwiftIME : InputMethodService() {
             keyboardInputView.setBackgroundColor(currentTheme.background)
         }
         applyInputProfile()
-        if (settings.clipboardEnabled) {
+        if (settings.clipboardEnabled && isSelectedIme()) {
             registerClipListenerIfNeeded()
             clipboard.captureSystem(
                 ctx = this,
@@ -365,6 +377,7 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        unregisterClipListener()
         privacyModeActive = false
         if (isListeningVoice) {
             stopVoiceTyping()
@@ -383,8 +396,16 @@ class OpenSwiftIME : InputMethodService() {
         }
     }
 
+    override fun onWindowShown() {
+        super.onWindowShown()
+        if (settings.clipboardEnabled && isSelectedIme()) {
+            registerClipListenerIfNeeded()
+        }
+    }
+
     override fun onWindowHidden() {
         super.onWindowHidden()
+        unregisterClipListener()
         privacyModeActive = false
         if (isListeningVoice) {
             stopVoiceTyping()
@@ -685,8 +706,10 @@ class OpenSwiftIME : InputMethodService() {
     }
 
     private fun showClipboardView() {
-        registerClipListenerIfNeeded()
-        clipboard.captureSystem(this, enabled = true, privateField = false)
+        if (isSelectedIme()) {
+            registerClipListenerIfNeeded()
+            clipboard.captureSystem(this, enabled = true, privateField = false)
+        }
         clipboardMode = true
         val inputView = getOrCreateClipboardInputView()
         if (::keyboardView.isInitialized) {
@@ -899,6 +922,7 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onFinishInput() {
         super.onFinishInput()
+        unregisterClipListener()
         if (currentWord.isNotEmpty() && learningEnabled()) {
             detectLanguageForCurrentContext(currentWord.toString())
             userDict.learn(previousWord.ifEmpty { null }, currentWord.toString())

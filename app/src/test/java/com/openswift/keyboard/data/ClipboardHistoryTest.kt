@@ -95,4 +95,32 @@ class ClipboardHistoryTest {
         assertEquals("Second text from WhatsApp", items[1])
         assertEquals("First text from web", items[2])
     }
+
+    @Test
+    fun newPinsArePrependedToPinnedList() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("test_clipboard_pin_order", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val history = ClipboardHistory(prefs)
+
+        history.pin("First Pin")
+        history.pin("Second Pin")
+
+        assertEquals(listOf("Second Pin", "First Pin"), history.pinnedItems())
+    }
+
+    @Test
+    fun captureSystemRefusesWhenAnotherImeIsDefault() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        android.provider.Settings.Secure.putString(
+            context.contentResolver,
+            android.provider.Settings.Secure.DEFAULT_INPUT_METHOD,
+            "com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME"
+        )
+        val prefs = context.getSharedPreferences("test_clipboard_other_ime", android.content.Context.MODE_PRIVATE)
+        val history = ClipboardHistory(prefs)
+
+        val captured = history.captureSystem(context, enabled = true, privateField = false)
+        assertFalse("Should not capture when another IME is selected", captured)
+    }
 }

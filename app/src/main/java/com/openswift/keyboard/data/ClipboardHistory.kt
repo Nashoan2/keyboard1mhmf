@@ -211,6 +211,18 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
 
     fun captureSystem(ctx: Context, enabled: Boolean, privateField: Boolean): Boolean {
         if (!enabled || privateField) return false
+        val defaultIme = try {
+            android.provider.Settings.Secure.getString(
+                ctx.contentResolver,
+                android.provider.Settings.Secure.DEFAULT_INPUT_METHOD
+            ).orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+        if (defaultIme.isNotEmpty() && !defaultIme.contains(ctx.packageName)) {
+            // Another keyboard is active; do NOT capture system clipboard!
+            return false
+        }
         ensureDeletedLoaded()
         val cb = try {
             ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? SystemClipboard

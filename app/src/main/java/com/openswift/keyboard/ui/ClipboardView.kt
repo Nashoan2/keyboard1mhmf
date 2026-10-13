@@ -341,22 +341,7 @@ class ClipboardView @JvmOverloads constructor(
         val colWidth = totalAvailableWidth / 2f
         var curY = headerHeight + (10f * density)
 
-        // Section 1: العناصر المثبَّتة (Pinned items) - Shown at the TOP
-        hasPinnedHeader = pinnedItems.isNotEmpty()
-        if (hasPinnedHeader) {
-            pinnedHeaderY = curY
-            curY += 24f * density
-
-            for (i in pinnedItems.indices step 2) {
-                val rightText = pinnedItems[i]
-                val leftText = pinnedItems.getOrNull(i + 1)
-                curY = recordRow(w, curY, colWidth, rightText, leftText, isPinned = true)
-                curY += gridGap
-            }
-            curY += 10f * density
-        }
-
-        // Section 2: الأحدث (Recent items) - Shown below pinned items
+        // Section 1: الأحدث (Recent items) - Shown at the TOP
         hasRecentHeader = recentItems.isNotEmpty()
         if (hasRecentHeader) {
             recentHeaderY = curY
@@ -366,6 +351,21 @@ class ClipboardView @JvmOverloads constructor(
                 val rightText = recentItems[i]
                 val leftText = recentItems.getOrNull(i + 1)
                 curY = recordRow(w, curY, colWidth, rightText, leftText, isPinned = false)
+                curY += gridGap
+            }
+            curY += 10f * density
+        }
+
+        // Section 2: العناصر المثبَّتة (Pinned items) - Shown at the BOTTOM (under recent items)
+        hasPinnedHeader = pinnedItems.isNotEmpty()
+        if (hasPinnedHeader) {
+            pinnedHeaderY = curY
+            curY += 24f * density
+
+            for (i in pinnedItems.indices step 2) {
+                val rightText = pinnedItems[i]
+                val leftText = pinnedItems.getOrNull(i + 1)
+                curY = recordRow(w, curY, colWidth, rightText, leftText, isPinned = true)
                 curY += gridGap
             }
         }
@@ -418,7 +418,7 @@ class ClipboardView @JvmOverloads constructor(
         val totalCount = layoutCards.size
         drawHeader(canvas, w, totalCount)
 
-        // 3. Draw Scrollable Content (العناصر المثبتة في البداية + ثم الأحدث)
+        // 3. Draw Scrollable Content (الأحدث في الأعلى + ثم العناصر المثبتة في الأسفل)
         canvas.save()
         canvas.clipRect(0f, headerHeight, w, h)
 

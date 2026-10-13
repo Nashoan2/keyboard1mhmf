@@ -141,8 +141,8 @@ class DataPortability(private val context: Context) {
                     if (incomingPinned.isNotEmpty()) cb.savePinned(incomingPinned)
                     restoredClipboardCount = incomingItems.size + incomingPinned.size
                 } else {
-                    val mergedItems = (incomingItems + cb.items()).distinct().take(100)
-                    val mergedPinned = (incomingPinned + cb.pinnedItems()).distinct().take(50)
+                    val mergedItems = (incomingItems + cb.items()).distinct().take(ClipboardHistory.MAX_ITEMS)
+                    val mergedPinned = (incomingPinned + cb.pinnedItems()).distinct().take(ClipboardHistory.MAX_PINNED_ITEMS)
                     cb.save(mergedItems)
                     cb.savePinned(mergedPinned)
                     restoredClipboardCount = incomingItems.size + incomingPinned.size

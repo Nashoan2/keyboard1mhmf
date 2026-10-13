@@ -163,7 +163,7 @@ fun KeyboardSettingsTab(settings: Settings, textColor: ComposeColor, accentColor
             var reducedMotion by remember { mutableStateOf(settings.reducedMotion) }
 
             SwitchOption("وضع توفير الطاقة", powerSave, textColor, accentColor) { powerSave = it; settings.powerSaveMode = it }
-            SwitchOption("سجل الحافظة", clipboardHistory, textColor, accentColor) { clipboardHistory = it; settings.clipboardEnabled = it }
+            SwitchOption("سجل الحافظة (سعة تتسع لأكثر من 1000 نص)", clipboardHistory, textColor, accentColor) { clipboardHistory = it; settings.clipboardEnabled = it }
             SwitchOption("الكتابة بالسحب السريع", glide, textColor, accentColor) { glide = it; settings.glideEnabled = it }
             SwitchOption("التصحيح التلقائي", correct, textColor, accentColor) { correct = it; settings.autoCorrect = it }
             SwitchOption("التعرف التلقائي على اللغة", languageDetection, textColor, accentColor) { languageDetection = it; settings.languageDetection = it }

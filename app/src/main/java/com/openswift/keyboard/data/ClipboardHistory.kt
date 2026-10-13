@@ -179,7 +179,7 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
     fun pin(text: String) {
         val current = pinnedItems()
         if (text !in current) {
-            savePinned(listOf(text) + current)
+            savePinned((listOf(text) + current).take(MAX_PINNED_ITEMS))
         }
         val currentUnpinned = items()
         if (text in currentUnpinned) {
@@ -267,6 +267,7 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
 
     companion object {
         const val MAX_ITEMS = 3000
+        const val MAX_PINNED_ITEMS = 1000
         private const val SENSITIVE_CLIPBOARD_EXTRA = "android.content.extra.IS_SENSITIVE"
 
         internal fun shouldCapture(

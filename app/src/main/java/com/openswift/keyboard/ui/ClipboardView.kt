@@ -211,6 +211,14 @@ class ClipboardView @JvmOverloads constructor(
     private val cardRadius = 8f * density
     private val gridGap = 8f * density
 
+    // Layout cache for butter-smooth scrolling with 1000+ items
+    private var layoutCardsValid = false
+    private var lastLayoutW = 0f
+    private var pinnedHeaderY = 0f
+    private var recentHeaderY = 0f
+    private var hasPinnedHeader = false
+    private var hasRecentHeader = false
+
     // Scroll state and smooth fling
     private var scrollYOffset = 0f
     private var maxScroll = 0f
@@ -264,6 +272,7 @@ class ClipboardView @JvmOverloads constructor(
         try {
             clipboard.captureSystem(context, enabled = true, privateField = false)
         } catch (_: Exception) {}
+        layoutCardsValid = false
         textTruncateCache.clear()
         invalidate()
     }
@@ -294,6 +303,13 @@ class ClipboardView @JvmOverloads constructor(
         }
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w != oldw || h != oldh) {
+            layoutCardsValid = false
+        }
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val targetHeight = if (explicitHeightPx > 0) {
@@ -305,20 +321,8 @@ class ClipboardView @JvmOverloads constructor(
         setMeasuredDimension(w, targetHeight)
     }
 
-    override fun onDraw(canvas: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-
-        // 1. Fill pitch-black background
-        canvas.drawRect(0f, 0f, w, h, bgPaint)
-
-        // 2. Draw Header
-        drawHeader(canvas, w)
-
-        // 3. Draw Scrollable Content (العناصر المثبتة في البداية + ثم الأحدث)
-        canvas.save()
-        canvas.clipRect(0f, headerHeight, w, h)
-
+    private fun rebuildLayout(w: Float, h: Float) {
+        lastLayoutW = w
         layoutCards.clear()
 
         val pinnedItems = clipboard.pinnedItems()
@@ -326,11 +330,10 @@ class ClipboardView @JvmOverloads constructor(
         val recentItems = clipboard.items().filter { it !in pinnedSet }
 
         if (recentItems.isEmpty() && pinnedItems.isEmpty()) {
-            val emptyCenterY = (h - headerHeight) / 2f + headerHeight
-            canvas.drawText("الحافظة فارغة", w / 2f, emptyCenterY - (10f * density), headerTitlePaint)
-            canvas.drawText("قم بنسخ أي نص وسيظهر هنا تلقائياً", w / 2f, emptyCenterY + (16f * density), emptySubPaint)
-            canvas.restore()
-            if (activeDialogCard != null) drawActionDialog(canvas, w, h)
+            maxScroll = 0f
+            hasPinnedHeader = false
+            hasRecentHeader = false
+            layoutCardsValid = true
             return
         }
 
@@ -339,40 +342,118 @@ class ClipboardView @JvmOverloads constructor(
         var curY = headerHeight + (10f * density)
 
         // Section 1: العناصر المثبَّتة (Pinned items) - Shown at the TOP
-        if (pinnedItems.isNotEmpty()) {
-            val sectionY = curY - scrollYOffset
-            if (sectionY + (24f * density) >= headerHeight && sectionY <= h) {
-                canvas.drawText("العناصر المثبَّتة 📌", w - horizontalMargin, sectionY + (14f * density), sectionHeaderPaint)
-            }
+        hasPinnedHeader = pinnedItems.isNotEmpty()
+        if (hasPinnedHeader) {
+            pinnedHeaderY = curY
             curY += 24f * density
 
             for (i in pinnedItems.indices step 2) {
                 val rightText = pinnedItems[i]
                 val leftText = pinnedItems.getOrNull(i + 1)
-                curY = recordAndDrawRow(canvas, w, curY, colWidth, rightText, leftText, true, h)
+                curY = recordRow(w, curY, colWidth, rightText, leftText, isPinned = true)
                 curY += gridGap
             }
             curY += 10f * density
         }
 
         // Section 2: الأحدث (Recent items) - Shown below pinned items
-        if (recentItems.isNotEmpty()) {
-            val sectionY = curY - scrollYOffset
-            if (sectionY + (24f * density) >= headerHeight && sectionY <= h) {
-                canvas.drawText("الأحدث", w - horizontalMargin, sectionY + (14f * density), sectionHeaderPaint)
-            }
+        hasRecentHeader = recentItems.isNotEmpty()
+        if (hasRecentHeader) {
+            recentHeaderY = curY
             curY += 24f * density
 
             for (i in recentItems.indices step 2) {
                 val rightText = recentItems[i]
                 val leftText = recentItems.getOrNull(i + 1)
-                curY = recordAndDrawRow(canvas, w, curY, colWidth, rightText, leftText, false, h)
+                curY = recordRow(w, curY, colWidth, rightText, leftText, isPinned = false)
                 curY += gridGap
             }
         }
 
         val totalContentHeight = curY - headerHeight + (12f * density)
         maxScroll = max(0f, totalContentHeight - (h - headerHeight))
+        layoutCardsValid = true
+    }
+
+    private fun recordRow(
+        w: Float,
+        contentY: Float,
+        colWidth: Float,
+        rightText: String?,
+        leftText: String?,
+        isPinned: Boolean
+    ): Float {
+        val rowCardHeight = cardHeight
+
+        // Right column card (in RTL: right side comes first)
+        if (!rightText.isNullOrBlank()) {
+            val rightLeft = w - horizontalMargin - colWidth
+            val rect = RectF(rightLeft, contentY, rightLeft + colWidth, contentY + rowCardHeight)
+            layoutCards.add(ClipCard(rightText, isPinned, rect))
+        }
+
+        // Left column card
+        if (!leftText.isNullOrBlank()) {
+            val rect = RectF(horizontalMargin, contentY, horizontalMargin + colWidth, contentY + rowCardHeight)
+            layoutCards.add(ClipCard(leftText, isPinned, rect))
+        }
+
+        return contentY + rowCardHeight
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+
+        if (w <= 0f || h <= 0f) return
+
+        if (!layoutCardsValid || lastLayoutW != w) {
+            rebuildLayout(w, h)
+        }
+
+        // 1. Fill pitch-black background
+        canvas.drawRect(0f, 0f, w, h, bgPaint)
+
+        // 2. Draw Header
+        val totalCount = layoutCards.size
+        drawHeader(canvas, w, totalCount)
+
+        // 3. Draw Scrollable Content (العناصر المثبتة في البداية + ثم الأحدث)
+        canvas.save()
+        canvas.clipRect(0f, headerHeight, w, h)
+
+        if (layoutCards.isEmpty()) {
+            val emptyCenterY = (h - headerHeight) / 2f + headerHeight
+            canvas.drawText("الحافظة فارغة", w / 2f, emptyCenterY - (10f * density), headerTitlePaint)
+            canvas.drawText("سعة الحافظة تتسع لأكثر من 1000 نص 📋 انسخ أي نص وسيظهر هنا تلقائياً", w / 2f, emptyCenterY + (16f * density), emptySubPaint)
+            canvas.restore()
+            if (activeDialogCard != null) drawActionDialog(canvas, w, h)
+            return
+        }
+
+        // Draw Section Headers when visible
+        if (hasPinnedHeader) {
+            val sectionY = pinnedHeaderY - scrollYOffset
+            if (sectionY + (24f * density) >= headerHeight && sectionY <= h) {
+                canvas.drawText("العناصر المثبَّتة 📌", w - horizontalMargin, sectionY + (14f * density), sectionHeaderPaint)
+            }
+        }
+
+        if (hasRecentHeader) {
+            val sectionY = recentHeaderY - scrollYOffset
+            if (sectionY + (24f * density) >= headerHeight && sectionY <= h) {
+                canvas.drawText("الأحدث", w - horizontalMargin, sectionY + (14f * density), sectionHeaderPaint)
+            }
+        }
+
+        // Viewport culling: only draw cards visible on screen
+        for (card in layoutCards) {
+            val drawY = card.bounds.top - scrollYOffset
+            if (drawY + cardHeight < headerHeight) continue
+            if (drawY > h) break // All subsequent cards are below view
+            val drawRect = RectF(card.bounds.left, drawY, card.bounds.right, drawY + cardHeight)
+            drawCard(canvas, drawRect, card.text, card.isPinned)
+        }
 
         canvas.restore()
 
@@ -382,47 +463,7 @@ class ClipboardView @JvmOverloads constructor(
         }
     }
 
-    private fun recordAndDrawRow(
-        canvas: Canvas,
-        w: Float,
-        contentY: Float,
-        colWidth: Float,
-        rightText: String?,
-        leftText: String?,
-        isPinned: Boolean,
-        viewHeight: Float
-    ): Float {
-        val rowCardHeight = cardHeight
-
-        // Right column card (in RTL: right side comes first)
-        if (!rightText.isNullOrBlank()) {
-            val rightLeft = w - horizontalMargin - colWidth
-            val rect = RectF(rightLeft, contentY, rightLeft + colWidth, contentY + rowCardHeight)
-            layoutCards.add(ClipCard(rightText, isPinned, rect))
-
-            val drawY = contentY - scrollYOffset
-            if (drawY + rowCardHeight >= headerHeight && drawY <= viewHeight) {
-                val drawRect = RectF(rightLeft, drawY, rightLeft + colWidth, drawY + rowCardHeight)
-                drawCard(canvas, drawRect, rightText, isPinned)
-            }
-        }
-
-        // Left column card
-        if (!leftText.isNullOrBlank()) {
-            val rect = RectF(horizontalMargin, contentY, horizontalMargin + colWidth, contentY + rowCardHeight)
-            layoutCards.add(ClipCard(leftText, isPinned, rect))
-
-            val drawY = contentY - scrollYOffset
-            if (drawY + rowCardHeight >= headerHeight && drawY <= viewHeight) {
-                val drawRect = RectF(horizontalMargin, drawY, horizontalMargin + colWidth, drawY + rowCardHeight)
-                drawCard(canvas, drawRect, leftText, isPinned)
-            }
-        }
-
-        return contentY + rowCardHeight
-    }
-
-    private fun drawHeader(canvas: Canvas, w: Float) {
+    private fun drawHeader(canvas: Canvas, w: Float, totalCount: Int) {
         // [ ABC ] button on left
         val abcWidth = 56f * density
         val abcHeight = 32f * density
@@ -434,11 +475,12 @@ class ClipboardView @JvmOverloads constructor(
         abcBtnPaint.color = 0xFF19D1F4.toInt()
         canvas.drawText("ABC", abcBounds.centerX(), abcTextY, abcBtnPaint)
 
-        // Center Title
+        // Center Title with total items counter
         val titleY = (headerHeight / 2f) - ((headerTitlePaint.ascent() + headerTitlePaint.descent()) / 2f)
         headerTitlePaint.textSize = 17f * density
         headerTitlePaint.color = 0xFFFFFFFF.toInt()
-        canvas.drawText("حافظة النصوص", w / 2f, titleY, headerTitlePaint)
+        val titleText = if (totalCount > 0) "حافظة النصوص ($totalCount)" else "حافظة النصوص"
+        canvas.drawText(titleText, w / 2f, titleY, headerTitlePaint)
 
         // Right side: [ ∨ ] hide button on the far right (enlarged for easy tapping)
         val iconSize = (34f * density).toInt()
@@ -690,6 +732,7 @@ class ClipboardView @JvmOverloads constructor(
                         clipboard.pin(item)
                         Toast.makeText(context, "تم تثبيت النص في أعلى الحافظة (محمي من الحذف) 📌", Toast.LENGTH_SHORT).show()
                     }
+                    layoutCardsValid = false
                     textTruncateCache.clear()
                     activeDialogCard = null
                     invalidate()
@@ -700,6 +743,7 @@ class ClipboardView @JvmOverloads constructor(
                         Toast.makeText(context, "النصوص المثبتة لا يتم مسحها إلا بعد إلغاء التثبيت 📌", Toast.LENGTH_SHORT).show()
                     } else {
                         clipboard.remove(item, context)
+                        layoutCardsValid = false
                         textTruncateCache.clear()
                         Toast.makeText(context, "تم حذف النص من الحافظة", Toast.LENGTH_SHORT).show()
                         activeDialogCard = null
@@ -800,6 +844,7 @@ class ClipboardView @JvmOverloads constructor(
                         } else {
                             vibrateFeedback()
                             clipboard.remove(target.text, context)
+                            layoutCardsValid = false
                             textTruncateCache.clear()
                             Toast.makeText(context, "تم حذف النص", Toast.LENGTH_SHORT).show()
                         }
@@ -846,6 +891,7 @@ class ClipboardView @JvmOverloads constructor(
                             if (unpinned.isNotEmpty()) {
                                 vibrateFeedback()
                                 clipboard.clear(context)
+                                layoutCardsValid = false
                                 textTruncateCache.clear()
                                 Toast.makeText(context, "تم مسح النصوص غير المثبتة (${unpinned.size}) - النصوص المثبتة محفوظة ✓", Toast.LENGTH_SHORT).show()
                                 invalidate()
@@ -875,6 +921,7 @@ class ClipboardView @JvmOverloads constructor(
                                     Toast.makeText(context, "النصوص المثبتة لا يتم مسحها إلا بعد إلغاء التثبيت 📌", Toast.LENGTH_SHORT).show()
                                 } else {
                                     clipboard.remove(card.text, context)
+                                    layoutCardsValid = false
                                     textTruncateCache.clear()
                                     Toast.makeText(context, "تم حذف النص", Toast.LENGTH_SHORT).show()
                                     invalidate()

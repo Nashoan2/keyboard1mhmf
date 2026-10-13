@@ -61,14 +61,14 @@ fun PrivacyUI(
         PrivacyDataCard(
             icon = Icons.AutoMirrored.Filled.List,
             title = "سجل الحافظة",
-            subtitle = "${clipboardItems.size} نصوص محفوظة",
+            subtitle = "${clipboardItems.size} نصوص محفوظة (سعة الحافظة حتى 3000 نص)",
             bgColor = bgColor,
             accentColor = accentColor,
             textColor = textColor
         ) {
             if (clipboardItems.isEmpty()) {
                 Text(
-                    "لا توجد نصوص في الحافظة بعد. عند تفعيل سجل الحافظة، ستظهر النصوص المنسوخة هنا.",
+                    "لا توجد نصوص في الحافظة بعد. الحافظة تتسع لأكثر من 1000 نص (حتى 3000 نص). عند نسخ أي نصوص ستظهر هنا وفي لوحة المفاتيح.",
                     style = AppTypography.bodySmall,
                     color = textColor.copy(alpha = 0.6f),
                     modifier = Modifier.padding(Spacing.md)
@@ -78,12 +78,12 @@ fun PrivacyUI(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(Spacing.sm)
                 ) {
-                    clipboardItems.take(5).forEach { item ->
+                    clipboardItems.take(15).forEach { item ->
                         ClipboardItemRow(item, textColor)
                     }
-                    if (clipboardItems.size > 5) {
+                    if (clipboardItems.size > 15) {
                         Text(
-                            "...و ${clipboardItems.size - 5} عناصر أخرى",
+                            "...و ${clipboardItems.size - 15} عناصر أخرى محفوظة في الحافظة",
                             style = AppTypography.labelSmall,
                             color = textColor.copy(alpha = 0.5f),
                             modifier = Modifier.padding(start = Spacing.md)

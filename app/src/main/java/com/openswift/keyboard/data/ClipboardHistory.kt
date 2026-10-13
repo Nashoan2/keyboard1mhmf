@@ -223,6 +223,20 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
             // Another keyboard is active; do NOT capture system clipboard!
             return false
         }
+        val imm = try {
+            ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        } catch (_: Exception) {
+            null
+        }
+        val isImeEnabled = try {
+            imm?.enabledInputMethodList?.any { it.packageName == ctx.packageName } ?: true
+        } catch (_: Exception) {
+            true
+        }
+        if (!isImeEnabled) {
+            // Keyboard is disabled in system settings; do not capture!
+            return false
+        }
         ensureDeletedLoaded()
         val cb = try {
             ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? SystemClipboard

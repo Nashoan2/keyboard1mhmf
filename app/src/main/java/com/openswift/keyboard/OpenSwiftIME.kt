@@ -83,14 +83,13 @@ class OpenSwiftIME : InputMethodService() {
     private var isListeningVoice = false
     private var clipboardManager: android.content.ClipboardManager? = null
     private var isClipListenerRegistered = false
-    private var inputViewShownTimestamp = 0L
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
-        if (!isSelectedIme() || !settings.clipboardEnabled || !isInputViewShown) {
+        if (!isSelectedIme() || !settings.clipboardEnabled) {
             unregisterClipListener()
             return@OnPrimaryClipChangedListener
         }
         clipboard.onSystemClipChanged()
-        clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive, minTimestamp = inputViewShownTimestamp)
+        clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
         clipboardView?.refresh(resetScrollPosition = false)
     }
 
@@ -103,7 +102,17 @@ class OpenSwiftIME : InputMethodService() {
         } catch (_: Exception) {
             ""
         }
-        return defaultIme.contains(packageName)
+        if (!defaultIme.contains(packageName)) return false
+        val imm = try {
+            getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        } catch (_: Exception) {
+            null
+        }
+        return try {
+            imm?.enabledInputMethodList?.any { it.packageName == packageName } ?: true
+        } catch (_: Exception) {
+            true
+        }
     }
 
     private fun isPowerSaveActive(): Boolean {
@@ -113,14 +122,18 @@ class OpenSwiftIME : InputMethodService() {
     }
 
     private fun registerClipListenerIfNeeded() {
-        if (settings.clipboardEnabled && isSelectedIme() && isInputViewShown && !isClipListenerRegistered) {
-            try {
-                if (clipboardManager == null) {
-                    clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                }
-                clipboardManager?.addPrimaryClipChangedListener(clipChangedListener)
-                isClipListenerRegistered = true
-            } catch (_: Exception) {}
+        if (settings.clipboardEnabled && isSelectedIme()) {
+            if (!isClipListenerRegistered) {
+                try {
+                    if (clipboardManager == null) {
+                        clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                    }
+                    clipboardManager?.addPrimaryClipChangedListener(clipChangedListener)
+                    isClipListenerRegistered = true
+                } catch (_: Exception) {}
+            }
+        } else {
+            unregisterClipListener()
         }
     }
 
@@ -149,7 +162,9 @@ class OpenSwiftIME : InputMethodService() {
         vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
         Settings.encryptedPreferences(this).registerOnSharedPreferenceChangeListener(prefChangeListener)
         clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-        // Only register clip listener when keyboard window is actually shown to prevent background battery drain
+        if (settings.clipboardEnabled && isSelectedIme()) {
+            registerClipListenerIfNeeded()
+        }
     }
 
     override fun onCreateInputView(): View {
@@ -342,8 +357,8 @@ class OpenSwiftIME : InputMethodService() {
         }
         applyInputProfile()
         if (settings.clipboardEnabled && isSelectedIme()) {
-            inputViewShownTimestamp = System.currentTimeMillis()
             registerClipListenerIfNeeded()
+            clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
             clipboardView?.refresh(resetScrollPosition = false)
         } else {
             unregisterClipListener()
@@ -374,7 +389,9 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
-        unregisterClipListener()
+        if (!isSelectedIme() || !settings.clipboardEnabled) {
+            unregisterClipListener()
+        }
         privacyModeActive = false
         if (isListeningVoice) {
             stopVoiceTyping()
@@ -395,15 +412,20 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onWindowShown() {
         super.onWindowShown()
-        inputViewShownTimestamp = System.currentTimeMillis()
         if (settings.clipboardEnabled && isSelectedIme()) {
             registerClipListenerIfNeeded()
+            clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
+            clipboardView?.refresh(resetScrollPosition = false)
+        } else {
+            unregisterClipListener()
         }
     }
 
     override fun onWindowHidden() {
         super.onWindowHidden()
-        unregisterClipListener()
+        if (!isSelectedIme() || !settings.clipboardEnabled) {
+            unregisterClipListener()
+        }
         privacyModeActive = false
         if (isListeningVoice) {
             stopVoiceTyping()
@@ -704,8 +726,9 @@ class OpenSwiftIME : InputMethodService() {
     }
 
     private fun showClipboardView() {
-        if (isSelectedIme() && isInputViewShown) {
+        if (isSelectedIme() && settings.clipboardEnabled) {
             registerClipListenerIfNeeded()
+            clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
         }
         clipboardMode = true
         val inputView = getOrCreateClipboardInputView()
@@ -919,7 +942,9 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onFinishInput() {
         super.onFinishInput()
-        unregisterClipListener()
+        if (!isSelectedIme() || !settings.clipboardEnabled) {
+            unregisterClipListener()
+        }
         if (currentWord.isNotEmpty() && learningEnabled()) {
             detectLanguageForCurrentContext(currentWord.toString())
             userDict.learn(previousWord.ifEmpty { null }, currentWord.toString())

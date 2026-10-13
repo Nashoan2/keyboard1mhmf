@@ -144,4 +144,22 @@ class ClipboardHistoryTest {
         assertFalse("Should not capture clip with timestamp older than minTimestamp", captured)
         assertEquals(0, history.items().size)
     }
+
+    @Test
+    fun captureManyItemsPreservesAllInOrder() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("test_clipboard_many", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val history = ClipboardHistory(prefs)
+
+        // Add 25 distinct copied texts
+        for (i in 1..25) {
+            history.add("Copied snippet #$i")
+        }
+
+        val items = history.items()
+        assertEquals(25, items.size)
+        assertEquals("Copied snippet #25", items[0])
+        assertEquals("Copied snippet #1", items[24])
+    }
 }

@@ -6,7 +6,6 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
-import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.AttributeSet
 import android.view.MotionEvent
@@ -24,10 +23,11 @@ import kotlin.math.max
 /**
  * High-performance, ultra-smooth Clipboard View with:
  * 1. Pinned items at the TOP for immediate zero-scroll access!
- * 2. Instant O(1) text truncation caching (zero per-frame string chopping).
- * 3. Viewport culling (only rendering visible rows).
- * 4. Physics-based smooth inertial fling scrolling via OverScroller and VelocityTracker.
- * 5. Full dialog actions: Paste, Pin/Unpin, Delete, Clear unpinned.
+ * 2. Instant O(1) pre-computed text truncation (zero per-frame string chopping).
+ * 3. Viewport culling with zero per-frame allocations (locked 60/120fps).
+ * 4. Physics-based smooth low-friction inertial fling scrolling via OverScroller and VelocityTracker.
+ * 5. Visual scrollbar indicator and convenient "Scroll to top" button for long histories (20+ items).
+ * 6. Full dialog actions: Paste, Pin/Unpin, Delete, Clear unpinned.
  */
 class ClipboardView @JvmOverloads constructor(
     ctx: Context,
@@ -50,6 +50,7 @@ class ClipboardView @JvmOverloads constructor(
     var isDeleteMode = false
         set(value) {
             field = value
+            layoutCardsValid = false
             invalidate()
         }
 
@@ -170,6 +171,29 @@ class ClipboardView @JvmOverloads constructor(
         isFakeBoldText = true
     }
 
+    // Scrollbar and quick top scroll
+    private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x55FFFFFF.toInt()
+        style = Paint.Style.FILL
+    }
+    private val scrollbarRect = RectF()
+    private val scrollToTopPillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xEE1A222D.toInt()
+        style = Paint.Style.FILL
+    }
+    private val scrollToTopBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x5519D1F4.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 1.2f * density
+    }
+    private val scrollToTopTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF19D1F4.toInt()
+        textAlign = Paint.Align.CENTER
+        textSize = 12.5f * density
+        isFakeBoldText = true
+    }
+    private val scrollToTopBounds = RectF()
+
     // Drawables
     private val hideIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_keyboard_arrow_down)?.mutate()?.apply {
         setTint(0xFFFFFFFF.toInt())
@@ -187,17 +211,18 @@ class ClipboardView @JvmOverloads constructor(
     private val clearAllBounds = RectF()
     private val hideBounds = RectF()
 
+    // Reusable draw rect to prevent GC allocs at 60/120fps
+    private val tempCardDrawRect = RectF()
+
     // Internal model for layout items
     private data class ClipCard(
         val text: String,
+        val displayText: String,
         val isPinned: Boolean,
         val bounds: RectF
     )
 
     private val layoutCards = ArrayList<ClipCard>()
-
-    // Text truncation cache to prevent UI lag on scroll
-    private val textTruncateCache = HashMap<String, String>()
 
     // Swipe to delete state
     private var swipedCard: ClipCard? = null
@@ -226,7 +251,10 @@ class ClipboardView @JvmOverloads constructor(
     private var downY = 0f
     private var lastY = 0f
     private var isDragging = false
-    private val scroller = OverScroller(ctx)
+    private val scroller = OverScroller(ctx).apply {
+        // Lower friction for buttery smooth, fast, responsive gliding through 20+ items
+        setFriction(0.0035f)
+    }
     private var velocityTracker: VelocityTracker? = null
 
     override fun computeScroll() {
@@ -270,7 +298,6 @@ class ClipboardView @JvmOverloads constructor(
         }
         clipboard.invalidateCache()
         layoutCardsValid = false
-        textTruncateCache.clear()
         invalidate()
     }
 
@@ -336,24 +363,10 @@ class ClipboardView @JvmOverloads constructor(
 
         val totalAvailableWidth = w - (horizontalMargin * 2f) - gridGap
         val colWidth = totalAvailableWidth / 2f
+        val maxTextWidth = colWidth - (if (isDeleteMode) 34f * density else 16f * density)
         var curY = headerHeight + (10f * density)
 
-        // Section 1: الأحدث (Recent items) - Shown at the TOP
-        hasRecentHeader = recentItems.isNotEmpty()
-        if (hasRecentHeader) {
-            recentHeaderY = curY
-            curY += 24f * density
-
-            for (i in recentItems.indices step 2) {
-                val rightText = recentItems[i]
-                val leftText = recentItems.getOrNull(i + 1)
-                curY = recordRow(w, curY, colWidth, rightText, leftText, isPinned = false)
-                curY += gridGap
-            }
-            curY += 10f * density
-        }
-
-        // Section 2: العناصر المثبَّتة (Pinned items) - Shown at the BOTTOM (under recent items)
+        // Section 1: العناصر المثبَّتة (Pinned items) - Shown at the TOP for zero-scroll instant access!
         hasPinnedHeader = pinnedItems.isNotEmpty()
         if (hasPinnedHeader) {
             pinnedHeaderY = curY
@@ -362,13 +375,29 @@ class ClipboardView @JvmOverloads constructor(
             for (i in pinnedItems.indices step 2) {
                 val rightText = pinnedItems[i]
                 val leftText = pinnedItems.getOrNull(i + 1)
-                curY = recordRow(w, curY, colWidth, rightText, leftText, isPinned = true)
+                curY = recordRow(w, curY, colWidth, maxTextWidth, rightText, leftText, isPinned = true)
+                curY += gridGap
+            }
+            curY += 10f * density
+        }
+
+        // Section 2: الأحدث (Recent items) - Shown below pinned items
+        hasRecentHeader = recentItems.isNotEmpty()
+        if (hasRecentHeader) {
+            recentHeaderY = curY
+            curY += 24f * density
+
+            for (i in recentItems.indices step 2) {
+                val rightText = recentItems[i]
+                val leftText = recentItems.getOrNull(i + 1)
+                curY = recordRow(w, curY, colWidth, maxTextWidth, rightText, leftText, isPinned = false)
                 curY += gridGap
             }
         }
 
-        val totalContentHeight = curY - headerHeight + (12f * density)
+        val totalContentHeight = curY - headerHeight + (16f * density)
         maxScroll = max(0f, totalContentHeight - (h - headerHeight))
+        scrollYOffset = scrollYOffset.coerceIn(0f, maxScroll)
         layoutCardsValid = true
     }
 
@@ -376,6 +405,7 @@ class ClipboardView @JvmOverloads constructor(
         w: Float,
         contentY: Float,
         colWidth: Float,
+        maxTextWidth: Float,
         rightText: String?,
         leftText: String?,
         isPinned: Boolean
@@ -386,16 +416,38 @@ class ClipboardView @JvmOverloads constructor(
         if (!rightText.isNullOrBlank()) {
             val rightLeft = w - horizontalMargin - colWidth
             val rect = RectF(rightLeft, contentY, rightLeft + colWidth, contentY + rowCardHeight)
-            layoutCards.add(ClipCard(rightText, isPinned, rect))
+            val displayText = computeTruncatedText(rightText, maxTextWidth)
+            layoutCards.add(ClipCard(rightText, displayText, isPinned, rect))
         }
 
         // Left column card
         if (!leftText.isNullOrBlank()) {
             val rect = RectF(horizontalMargin, contentY, horizontalMargin + colWidth, contentY + rowCardHeight)
-            layoutCards.add(ClipCard(leftText, isPinned, rect))
+            val displayText = computeTruncatedText(leftText, maxTextWidth)
+            layoutCards.add(ClipCard(leftText, displayText, isPinned, rect))
         }
 
         return contentY + rowCardHeight
+    }
+
+    private fun computeTruncatedText(text: String, maxWidth: Float): String {
+        if (cardTextPaint.measureText(text) <= maxWidth) {
+            return text
+        }
+        var low = 0
+        var high = text.length
+        var best = 0
+        while (low <= high) {
+            val mid = (low + high) / 2
+            val candidate = text.substring(0, mid) + "…"
+            if (cardTextPaint.measureText(candidate) <= maxWidth) {
+                best = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return if (best > 0) text.substring(0, best) + "…" else text.take(3)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -415,7 +467,7 @@ class ClipboardView @JvmOverloads constructor(
         val totalCount = layoutCards.size
         drawHeader(canvas, w, totalCount)
 
-        // 3. Draw Scrollable Content (الأحدث في الأعلى + ثم العناصر المثبتة في الأسفل)
+        // 3. Draw Scrollable Content (العناصر المثبتة في الأعلى + ثم الأحدث)
         canvas.save()
         canvas.clipRect(0f, headerHeight, w, h)
 
@@ -443,13 +495,39 @@ class ClipboardView @JvmOverloads constructor(
             }
         }
 
-        // Viewport culling: only draw cards visible on screen
+        // Viewport culling: only draw cards visible on screen (zero object allocs)
         for (card in layoutCards) {
             val drawY = card.bounds.top - scrollYOffset
             if (drawY + cardHeight < headerHeight) continue
             if (drawY > h) break // All subsequent cards are below view
-            val drawRect = RectF(card.bounds.left, drawY, card.bounds.right, drawY + cardHeight)
-            drawCard(canvas, drawRect, card.text, card.isPinned)
+            tempCardDrawRect.set(card.bounds.left, drawY, card.bounds.right, drawY + cardHeight)
+            drawCard(canvas, tempCardDrawRect, card)
+        }
+
+        // Draw subtle modern scrollbar indicator when scrollable
+        if (maxScroll > 0f) {
+            val trackHeight = h - headerHeight - (16f * density)
+            val thumbHeight = (trackHeight * (trackHeight / (trackHeight + maxScroll))).coerceIn(24f * density, trackHeight)
+            val thumbY = headerHeight + (8f * density) + ((trackHeight - thumbHeight) * (scrollYOffset / maxScroll))
+            val thumbX = 3f * density
+            val thumbWidth = 3.5f * density
+            scrollbarRect.set(thumbX, thumbY, thumbX + thumbWidth, thumbY + thumbHeight)
+            canvas.drawRoundRect(scrollbarRect, 1.75f * density, 1.75f * density, scrollbarPaint)
+        }
+
+        // Draw floating "Scroll to top" button when scrolled down
+        if (scrollYOffset > 180f * density && !isDragging && activeDialogCard == null) {
+            val btnW = 88f * density
+            val btnH = 28f * density
+            val btnBottom = h - (10f * density)
+            val btnLeft = (w - btnW) / 2f
+            scrollToTopBounds.set(btnLeft, btnBottom - btnH, btnLeft + btnW, btnBottom)
+            canvas.drawRoundRect(scrollToTopBounds, 14f * density, 14f * density, scrollToTopPillPaint)
+            canvas.drawRoundRect(scrollToTopBounds, 14f * density, 14f * density, scrollToTopBorderPaint)
+            val textY = scrollToTopBounds.centerY() - ((scrollToTopTextPaint.ascent() + scrollToTopTextPaint.descent()) / 2f)
+            canvas.drawText("↑ للأعلى", scrollToTopBounds.centerX(), textY, scrollToTopTextPaint)
+        } else {
+            scrollToTopBounds.setEmpty()
         }
 
         canvas.restore()
@@ -516,7 +594,9 @@ class ClipboardView @JvmOverloads constructor(
         clearAllBounds.setEmpty()
     }
 
-    private fun drawCard(canvas: Canvas, rect: RectF, text: String, isPinned: Boolean) {
+    private fun drawCard(canvas: Canvas, rect: RectF, card: ClipCard) {
+        val text = card.text
+        val isPinned = card.isPinned
         val isBeingSwiped = isSwiping && swipedCard?.text == text && swipedCard?.isPinned == isPinned && swipeOffsetX < 0f
 
         if (isBeingSwiped) {
@@ -541,9 +621,7 @@ class ClipboardView @JvmOverloads constructor(
         }
 
         val textY = rect.centerY() - ((cardTextPaint.ascent() + cardTextPaint.descent()) / 2f)
-        val maxTextWidth = rect.width() - (if (isDeleteMode) 34f * density else 16f * density)
-        val clippedText = getCachedTruncatedText(text, maxTextWidth)
-        canvas.drawText(clippedText, rect.centerX(), textY, cardTextPaint)
+        canvas.drawText(card.displayText, rect.centerX(), textY, cardTextPaint)
 
         // Draw pin indicator for pinned items
         if (isPinned) {
@@ -589,7 +667,7 @@ class ClipboardView @JvmOverloads constructor(
         canvas.drawRoundRect(dialogRect, 14f * density, 14f * density, dialogBorderPaint)
 
         // Title preview
-        val titleText = getCachedTruncatedText(item, dialogWidth - (32f * density))
+        val titleText = computeTruncatedText(item, dialogWidth - (32f * density))
         val titleY = dTop + (26f * density)
         headerTitlePaint.textSize = 15f * density
         headerTitlePaint.color = 0xFFFFFFFF.toInt()
@@ -640,38 +718,9 @@ class ClipboardView @JvmOverloads constructor(
         canvas.drawText("إلغاء", dialogCancelBounds.centerX(), b4TextY, dialogTextPaint)
     }
 
-    private fun getCachedTruncatedText(text: String, maxWidth: Float): String {
-        val cacheKey = "$text|$maxWidth"
-        textTruncateCache[cacheKey]?.let { return it }
-
-        if (cardTextPaint.measureText(text) <= maxWidth) {
-            textTruncateCache[cacheKey] = text
-            return text
-        }
-
-        // Fast binary search for truncation boundary instead of linear dropLast
-        var low = 0
-        var high = text.length
-        var best = 0
-        while (low <= high) {
-            val mid = (low + high) / 2
-            val candidate = text.substring(0, mid) + "…"
-            if (cardTextPaint.measureText(candidate) <= maxWidth) {
-                best = mid
-                low = mid + 1
-            } else {
-                high = mid - 1
-            }
-        }
-
-        val result = if (best > 0) text.substring(0, best) + "…" else text.take(3)
-        textTruncateCache[cacheKey] = result
-        return result
-    }
-
     fun deleteItem(item: String): Boolean {
         clipboard.remove(item, context)
-        textTruncateCache.clear()
+        layoutCardsValid = false
         invalidate()
         return true
     }
@@ -730,7 +779,6 @@ class ClipboardView @JvmOverloads constructor(
                         Toast.makeText(context, "تم تثبيت النص في أعلى الحافظة (محمي من الحذف) 📌", Toast.LENGTH_SHORT).show()
                     }
                     layoutCardsValid = false
-                    textTruncateCache.clear()
                     activeDialogCard = null
                     invalidate()
                     return true
@@ -741,7 +789,6 @@ class ClipboardView @JvmOverloads constructor(
                     } else {
                         clipboard.remove(item, context)
                         layoutCardsValid = false
-                        textTruncateCache.clear()
                         Toast.makeText(context, "تم حذف النص من الحافظة", Toast.LENGTH_SHORT).show()
                         activeDialogCard = null
                         invalidate()
@@ -771,13 +818,22 @@ class ClipboardView @JvmOverloads constructor(
                 pressedCard = null
                 swipedCard = null
 
+                // If tapped "Scroll to top" button
+                if (scrollToTopBounds.contains(event.x, event.y)) {
+                    vibrateFeedback()
+                    scroller.startScroll(0, scrollYOffset.toInt(), 0, -scrollYOffset.toInt(), 280)
+                    postInvalidateOnAnimation()
+                    return true
+                }
+
                 // If touched below the header, find if a card was hit
                 if (event.y >= headerHeight) {
                     val card = findCardAt(event.x, event.y)
                     if (card != null) {
                         pressedCard = card
                         swipedCard = card
-                        longPressHandler.postDelayed(longPressRunnable, 350L)
+                        val lpTimeout = ViewConfiguration.getLongPressTimeout().toLong().coerceAtLeast(450L)
+                        longPressHandler.postDelayed(longPressRunnable, lpTimeout)
                     }
                 }
                 return true
@@ -789,7 +845,7 @@ class ClipboardView @JvmOverloads constructor(
 
                 if (!isDragging && !isSwiping) {
                     // Check if swiping right-to-left on an unpinned card
-                    if (dx < -touchSlop && abs(dx) > abs(totalDy) * 1.1f && swipedCard != null) {
+                    if (dx < -touchSlop && abs(dx) > abs(totalDy) * 1.2f && swipedCard != null) {
                         if (!swipedCard!!.isPinned) {
                             isSwiping = true
                             longPressHandler.removeCallbacks(longPressRunnable)
@@ -842,7 +898,6 @@ class ClipboardView @JvmOverloads constructor(
                             vibrateFeedback()
                             clipboard.remove(target.text, context)
                             layoutCardsValid = false
-                            textTruncateCache.clear()
                             Toast.makeText(context, "تم حذف النص", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -857,13 +912,14 @@ class ClipboardView @JvmOverloads constructor(
                 }
 
                 if (isDragging) {
-                    // Compute fling velocity
+                    // Compute fling velocity with boosted momentum for swift scrolling through 20+ items
                     velocityTracker?.computeCurrentVelocity(1000, maxFlingVelocity.toFloat())
                     val initialVelocityY = velocityTracker?.yVelocity ?: 0f
                     if (abs(initialVelocityY) > minFlingVelocity) {
+                        val flingVelocity = (-initialVelocityY * 1.35f).toInt()
                         scroller.fling(
                             0, scrollYOffset.toInt(),
-                            0, -initialVelocityY.toInt(),
+                            0, flingVelocity,
                             0, 0,
                             0, maxScroll.toInt()
                         )
@@ -889,7 +945,6 @@ class ClipboardView @JvmOverloads constructor(
                                 vibrateFeedback()
                                 clipboard.clear(context)
                                 layoutCardsValid = false
-                                textTruncateCache.clear()
                                 Toast.makeText(context, "تم مسح النصوص غير المثبتة (${unpinned.size}) - النصوص المثبتة محفوظة ✓", Toast.LENGTH_SHORT).show()
                                 invalidate()
                             } else {
@@ -919,7 +974,6 @@ class ClipboardView @JvmOverloads constructor(
                                 } else {
                                     clipboard.remove(card.text, context)
                                     layoutCardsValid = false
-                                    textTruncateCache.clear()
                                     Toast.makeText(context, "تم حذف النص", Toast.LENGTH_SHORT).show()
                                     invalidate()
                                 }

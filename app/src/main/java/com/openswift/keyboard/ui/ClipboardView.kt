@@ -688,7 +688,6 @@ class ClipboardView @JvmOverloads constructor(
                         Toast.makeText(context, "تم إلغاء التثبيت (يمكنك حذفه الآن) ✓", Toast.LENGTH_SHORT).show()
                     } else {
                         clipboard.pin(item)
-                        clipboard.remove(item, context)
                         Toast.makeText(context, "تم تثبيت النص في أعلى الحافظة (محمي من الحذف) 📌", Toast.LENGTH_SHORT).show()
                     }
                     textTruncateCache.clear()

@@ -97,25 +97,12 @@ class OpenSwiftIME : InputMethodService() {
         return pm?.isPowerSaveMode == true
     }
 
-    private fun isDefaultIme(): Boolean {
-        return try {
-            val defaultIme = android.provider.Settings.Secure.getString(
-                contentResolver,
-                android.provider.Settings.Secure.DEFAULT_INPUT_METHOD
-            )
-            defaultIme != null && defaultIme.contains(packageName)
-        } catch (_: Exception) {
-            true
-        }
-    }
-
     private fun registerClipListenerIfNeeded() {
-        if (!isDefaultIme()) {
-            unregisterClipListener()
-            return
-        }
         if (settings.clipboardEnabled && !isClipListenerRegistered) {
             try {
+                if (clipboardManager == null) {
+                    clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                }
                 clipboardManager?.addPrimaryClipChangedListener(clipChangedListener)
                 isClipListenerRegistered = true
             } catch (_: Exception) {}
@@ -129,11 +116,6 @@ class OpenSwiftIME : InputMethodService() {
                 isClipListenerRegistered = false
             } catch (_: Exception) {}
         }
-    }
-
-    override fun onUnbind(intent: android.content.Intent?): Boolean {
-        unregisterClipListener()
-        return super.onUnbind(intent)
     }
 
     override fun onCreate() {

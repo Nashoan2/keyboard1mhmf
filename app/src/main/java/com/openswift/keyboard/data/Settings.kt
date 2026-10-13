@@ -135,7 +135,7 @@ class Settings internal constructor(private val store: SettingsStore) {
         set(value) = store.putBoolean("powersave", value)
 
     var clipboardEnabled: Boolean
-        get() = store.getBoolean("clipboard", false)
+        get() = store.getBoolean("clipboard", true)
         set(value) = store.putBoolean("clipboard", value)
 
     var perAppTint: Boolean

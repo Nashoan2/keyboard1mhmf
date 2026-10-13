@@ -18,30 +18,20 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
     @Volatile
     private var cachedPinnedSet: Set<String>? = null
 
-    // Tracks deleted texts (persisted in preferences) so old clips sitting in the system clipboard
-    // never resurrect after closing and reopening the app, while any fresh copy is immediately allowed!
+    // Transient deleted texts cooldown so an item deleted in UI isn't immediately bounced back by system buffer
     private val deletedTimestamps = mutableMapOf<String, Long>()
     private var deletedItemsLoaded = false
 
     private fun ensureDeletedLoaded() {
         if (deletedItemsLoaded) return
         deletedItemsLoaded = true
-        val raw = prefs.getString("deleted_items", null) ?: return
-        runCatching {
-            val arr = JSONArray(raw)
-            for (i in 0 until arr.length()) {
-                val item = arr.optString(i)
-                if (item.isNotBlank()) {
-                    deletedTimestamps[item] = Long.MAX_VALUE / 2
-                }
-            }
-        }
+        // Clean up legacy deleted items so no copied texts are blacklisted
+        prefs.edit().remove("deleted_items").apply()
+        deletedTimestamps.clear()
     }
 
     private fun persistDeletedItems() {
-        val arr = JSONArray()
-        deletedTimestamps.keys.take(200).forEach { arr.put(it) }
-        prefs.edit().putString("deleted_items", arr.toString()).apply()
+        // In-memory cooldown is sufficient
     }
 
     fun invalidateCache() {
@@ -243,9 +233,10 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
 
         if (text.isBlank()) return false
 
-        // Check if this text was deleted earlier
+        // Check if this text was deleted earlier within a transient cooldown
         val deletedTime = deletedTimestamps[text]
         if (deletedTime != null) {
+            val now = System.currentTimeMillis()
             val clipTime = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 try {
                     clip.description.timestamp
@@ -255,12 +246,11 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
             } else {
                 0L
             }
-            if (clipTime > 0L && clipTime > deletedTime) {
-                // User explicitly re-copied this text after deleting it; accept it!
+            if ((clipTime > 0L && clipTime > deletedTime) || (now - deletedTime > 2500L)) {
+                // User re-copied this text or cooldown expired; accept it!
                 deletedTimestamps.remove(text)
-                persistDeletedItems()
             } else {
-                // Stale clip sitting in system buffer from before deletion; skip it
+                // Transient bounce right after deletion; ignore
                 return false
             }
         }

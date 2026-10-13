@@ -16,7 +16,7 @@ class SettingsTest {
         assertEquals("en", settings.language)
         assertTrue(settings.glideEnabled)
         assertTrue(settings.autoCorrect)
-        assertFalse(settings.clipboardEnabled)
+        assertTrue(settings.clipboardEnabled)
     }
 
     @Test

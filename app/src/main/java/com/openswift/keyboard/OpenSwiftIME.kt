@@ -83,13 +83,14 @@ class OpenSwiftIME : InputMethodService() {
     private var isListeningVoice = false
     private var clipboardManager: android.content.ClipboardManager? = null
     private var isClipListenerRegistered = false
+    private var inputViewShownTimestamp = 0L
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
         if (!isSelectedIme() || !settings.clipboardEnabled || !isInputViewShown) {
             unregisterClipListener()
             return@OnPrimaryClipChangedListener
         }
         clipboard.onSystemClipChanged()
-        clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
+        clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive, minTimestamp = inputViewShownTimestamp)
         clipboardView?.refresh(resetScrollPosition = false)
     }
 
@@ -112,7 +113,7 @@ class OpenSwiftIME : InputMethodService() {
     }
 
     private fun registerClipListenerIfNeeded() {
-        if (settings.clipboardEnabled && isSelectedIme() && !isClipListenerRegistered) {
+        if (settings.clipboardEnabled && isSelectedIme() && isInputViewShown && !isClipListenerRegistered) {
             try {
                 if (clipboardManager == null) {
                     clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
@@ -341,12 +342,8 @@ class OpenSwiftIME : InputMethodService() {
         }
         applyInputProfile()
         if (settings.clipboardEnabled && isSelectedIme()) {
+            inputViewShownTimestamp = System.currentTimeMillis()
             registerClipListenerIfNeeded()
-            clipboard.captureSystem(
-                ctx = this,
-                enabled = true,
-                privateField = privacyModeActive
-            )
             clipboardView?.refresh(resetScrollPosition = false)
         } else {
             unregisterClipListener()
@@ -398,6 +395,7 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onWindowShown() {
         super.onWindowShown()
+        inputViewShownTimestamp = System.currentTimeMillis()
         if (settings.clipboardEnabled && isSelectedIme()) {
             registerClipListenerIfNeeded()
         }
@@ -706,9 +704,8 @@ class OpenSwiftIME : InputMethodService() {
     }
 
     private fun showClipboardView() {
-        if (isSelectedIme()) {
+        if (isSelectedIme() && isInputViewShown) {
             registerClipListenerIfNeeded()
-            clipboard.captureSystem(this, enabled = true, privateField = false)
         }
         clipboardMode = true
         val inputView = getOrCreateClipboardInputView()

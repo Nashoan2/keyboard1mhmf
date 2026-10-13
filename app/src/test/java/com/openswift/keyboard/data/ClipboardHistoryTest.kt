@@ -123,4 +123,25 @@ class ClipboardHistoryTest {
         val captured = history.captureSystem(context, enabled = true, privateField = false)
         assertFalse("Should not capture when another IME is selected", captured)
     }
+
+    @Test
+    fun captureSystemRefusesWhenOlderThanMinTimestamp() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        android.provider.Settings.Secure.putString(
+            context.contentResolver,
+            android.provider.Settings.Secure.DEFAULT_INPUT_METHOD,
+            "${context.packageName}/com.openswift.keyboard.OpenSwiftIME"
+        )
+        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("test", "Old copied text from other keyboard"))
+
+        val prefs = context.getSharedPreferences("test_clipboard_old_timestamp", android.content.Context.MODE_PRIVATE)
+        val history = ClipboardHistory(prefs)
+
+        // Require timestamp in the future; current clip is older
+        val futureTimestamp = System.currentTimeMillis() + 3600000L
+        val captured = history.captureSystem(context, enabled = true, privateField = false, minTimestamp = futureTimestamp)
+        assertFalse("Should not capture clip with timestamp older than minTimestamp", captured)
+        assertEquals(0, history.items().size)
+    }
 }

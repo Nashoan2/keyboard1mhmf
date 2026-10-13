@@ -209,7 +209,7 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
         prefs.edit().putString("items", arr.toString()).apply()
     }
 
-    fun captureSystem(ctx: Context, enabled: Boolean, privateField: Boolean): Boolean {
+    fun captureSystem(ctx: Context, enabled: Boolean, privateField: Boolean, minTimestamp: Long = 0L): Boolean {
         if (!enabled || privateField) return false
         val defaultIme = try {
             android.provider.Settings.Secure.getString(
@@ -237,6 +237,23 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
         } ?: return false
 
         if (clip.itemCount == 0 || isSensitive(clip.description)) return false
+
+        if (minTimestamp > 0L) {
+            val clipTime = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                try {
+                    clip.description.timestamp
+                } catch (_: Exception) {
+                    0L
+                }
+            } else {
+                0L
+            }
+            if (clipTime in 1 until minTimestamp) {
+                // Text was copied before this keyboard became active; do not capture!
+                return false
+            }
+        }
+
         val text = try {
             clip.getItemAt(0)?.coerceToText(ctx)?.toString()
         } catch (_: Exception) {

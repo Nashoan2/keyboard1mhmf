@@ -269,9 +269,6 @@ class ClipboardView @JvmOverloads constructor(
             resetScroll()
         }
         clipboard.invalidateCache()
-        try {
-            clipboard.captureSystem(context, enabled = true, privateField = false)
-        } catch (_: Exception) {}
         layoutCardsValid = false
         textTruncateCache.clear()
         invalidate()

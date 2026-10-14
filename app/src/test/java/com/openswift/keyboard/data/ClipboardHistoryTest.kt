@@ -162,4 +162,44 @@ class ClipboardHistoryTest {
         assertEquals("Copied snippet #25", items[0])
         assertEquals("Copied snippet #1", items[24])
     }
+
+    @Test
+    fun captureSystemIgnoresBaselineTextCopiedUnderOtherKeyboard() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        android.provider.Settings.Secure.putString(
+            context.contentResolver,
+            android.provider.Settings.Secure.DEFAULT_INPUT_METHOD,
+            "${context.packageName}/com.openswift.keyboard.OpenSwiftIME"
+        )
+        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val baselineText = "Text copied previously on Gboard"
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("test", baselineText))
+
+        val prefs = context.getSharedPreferences("test_clipboard_baseline", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val history = ClipboardHistory(prefs)
+
+        // Attempt capture with ignoredBaselineText set to the baseline
+        val captured = history.captureSystem(
+            context,
+            enabled = true,
+            privateField = false,
+            ignoredBaselineText = baselineText
+        )
+        assertFalse("Should ignore baseline text copied under other keyboard", captured)
+        assertEquals(0, history.items().size)
+
+        // Now user copies a new text under OpenSwift
+        val newText = "New text copied on OpenSwift"
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("test", newText))
+        val capturedNew = history.captureSystem(
+            context,
+            enabled = true,
+            privateField = false,
+            ignoredBaselineText = null
+        )
+        assertTrue("Should capture newly copied text under OpenSwift", capturedNew)
+        assertEquals(1, history.items().size)
+        assertEquals(newText, history.items()[0])
+    }
 }

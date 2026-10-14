@@ -209,7 +209,13 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
         prefs.edit().putString("items", arr.toString()).apply()
     }
 
-    fun captureSystem(ctx: Context, enabled: Boolean, privateField: Boolean, minTimestamp: Long = 0L): Boolean {
+    fun captureSystem(
+        ctx: Context,
+        enabled: Boolean,
+        privateField: Boolean,
+        minTimestamp: Long = 0L,
+        ignoredBaselineText: String? = null
+    ): Boolean {
         if (!enabled || privateField) return false
         val defaultIme = try {
             android.provider.Settings.Secure.getString(
@@ -219,22 +225,11 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
         } catch (_: Exception) {
             ""
         }
-        if (defaultIme.isNotEmpty() && !defaultIme.contains(ctx.packageName)) {
+        val isDefault = defaultIme.isEmpty() ||
+            defaultIme.contains(ctx.packageName) ||
+            defaultIme.contains("com.openswift.keyboard")
+        if (!isDefault) {
             // Another keyboard is active; do NOT capture system clipboard!
-            return false
-        }
-        val imm = try {
-            ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-        } catch (_: Exception) {
-            null
-        }
-        val isImeEnabled = try {
-            imm?.enabledInputMethodList?.any { it.packageName == ctx.packageName } ?: true
-        } catch (_: Exception) {
-            true
-        }
-        if (!isImeEnabled) {
-            // Keyboard is disabled in system settings; do not capture!
             return false
         }
         ensureDeletedLoaded()
@@ -275,6 +270,11 @@ class ClipboardHistory internal constructor(private val prefs: android.content.S
         } ?: return false
 
         if (text.isBlank()) return false
+
+        if (ignoredBaselineText != null && text == ignoredBaselineText) {
+            // Text was already on system clipboard prior to OpenSwift activation; ignore
+            return false
+        }
 
         // Check if this text was deleted earlier within a transient cooldown
         val deletedTime = deletedTimestamps[text]

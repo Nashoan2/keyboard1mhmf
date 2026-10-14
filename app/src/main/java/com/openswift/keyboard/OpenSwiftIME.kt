@@ -83,13 +83,60 @@ class OpenSwiftIME : InputMethodService() {
     private var isListeningVoice = false
     private var clipboardManager: android.content.ClipboardManager? = null
     private var isClipListenerRegistered = false
+    private var defaultImeObserver: android.database.ContentObserver? = null
+    private var imeActivationTimestamp = 0L
+    private var baselineOtherImeClip: String? = null
+
+    private fun readCurrentSystemClipText(): String? {
+        return try {
+            val cm = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager ?: return null
+            val clip = cm.primaryClip ?: return null
+            if (clip.itemCount > 0) {
+                clip.getItemAt(0)?.coerceToText(this)?.toString()
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun onOpenSwiftActivated() {
+        imeActivationTimestamp = System.currentTimeMillis()
+        baselineOtherImeClip = readCurrentSystemClipText()
+        if (settings.clipboardEnabled && isSelectedIme()) {
+            registerClipListenerIfNeeded()
+        }
+    }
+
+    private fun onDefaultImeChanged() {
+        val selected = isSelectedIme()
+        if (!selected) {
+            // Switched to another keyboard! Instantly unregister listener and stop all clipboard activity
+            unregisterClipListener()
+            baselineOtherImeClip = null
+            imeActivationTimestamp = 0L
+        } else {
+            // Switched to OpenSwift!
+            onOpenSwiftActivated()
+        }
+    }
+
     private val clipChangedListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
         if (!isSelectedIme() || !settings.clipboardEnabled) {
             unregisterClipListener()
             return@OnPrimaryClipChangedListener
         }
+        val currentText = readCurrentSystemClipText()
+        if (baselineOtherImeClip != null && currentText != baselineOtherImeClip) {
+            baselineOtherImeClip = null
+        }
         clipboard.onSystemClipChanged()
-        clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
+        clipboard.captureSystem(
+            this,
+            enabled = true,
+            privateField = false,
+            minTimestamp = imeActivationTimestamp,
+            ignoredBaselineText = baselineOtherImeClip
+        )
         clipboardView?.refresh(resetScrollPosition = false)
     }
 
@@ -102,17 +149,22 @@ class OpenSwiftIME : InputMethodService() {
         } catch (_: Exception) {
             ""
         }
-        if (!defaultIme.contains(packageName)) return false
-        val imm = try {
-            getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-        } catch (_: Exception) {
-            null
-        }
-        return try {
-            imm?.enabledInputMethodList?.any { it.packageName == packageName } ?: true
-        } catch (_: Exception) {
-            true
-        }
+        return defaultIme.isEmpty() ||
+            defaultIme.contains(packageName) ||
+            defaultIme.contains("com.openswift.keyboard")
+    }
+
+    private fun isPasswordField(info: EditorInfo?): Boolean {
+        if (info == null) return false
+        val inputClass = info.inputType and android.text.InputType.TYPE_MASK_CLASS
+        val variation = info.inputType and android.text.InputType.TYPE_MASK_VARIATION
+        return (inputClass == android.text.InputType.TYPE_CLASS_TEXT &&
+            variation in setOf(
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+            )) || (inputClass == android.text.InputType.TYPE_CLASS_NUMBER &&
+            variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD)
     }
 
     private fun isPowerSaveActive(): Boolean {
@@ -146,6 +198,26 @@ class OpenSwiftIME : InputMethodService() {
         }
     }
 
+    private fun captureClipboardIfActive(privateField: Boolean = false) {
+        if (settings.clipboardEnabled && isSelectedIme()) {
+            val currentText = readCurrentSystemClipText()
+            if (baselineOtherImeClip != null && currentText != baselineOtherImeClip) {
+                baselineOtherImeClip = null
+            }
+            registerClipListenerIfNeeded()
+            clipboard.captureSystem(
+                this,
+                enabled = true,
+                privateField = privateField,
+                minTimestamp = imeActivationTimestamp,
+                ignoredBaselineText = baselineOtherImeClip
+            )
+            clipboardView?.refresh(resetScrollPosition = false)
+        } else {
+            unregisterClipListener()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         settings = Settings(this)
@@ -162,8 +234,19 @@ class OpenSwiftIME : InputMethodService() {
         vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
         Settings.encryptedPreferences(this).registerOnSharedPreferenceChangeListener(prefChangeListener)
         clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+        try {
+            val imeUri = android.provider.Settings.Secure.getUriFor(android.provider.Settings.Secure.DEFAULT_INPUT_METHOD)
+            defaultImeObserver = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) {
+                    super.onChange(selfChange)
+                    onDefaultImeChanged()
+                }
+            }
+            contentResolver.registerContentObserver(imeUri, false, defaultImeObserver!!)
+        } catch (_: Exception) {}
+
         if (settings.clipboardEnabled && isSelectedIme()) {
-            registerClipListenerIfNeeded()
+            onOpenSwiftActivated()
         }
     }
 
@@ -211,6 +294,7 @@ class OpenSwiftIME : InputMethodService() {
             } catch (_: Exception) {}
         }
         keyboardView.onHideKeyboard = {
+            captureClipboardIfActive(privateField = false)
             requestHideSelf(0)
         }
         keyboardInputView = withNavigationBarInset(keyboardView, activeTheme.background)
@@ -276,6 +360,10 @@ class OpenSwiftIME : InputMethodService() {
             view.onReturnToKeyboard = {
                 clipboardMode = false
                 showKeyboardView()
+            }
+            view.onHide = {
+                captureClipboardIfActive(privateField = false)
+                requestHideSelf(0)
             }
             if (::keyboardView.isInitialized) {
                 view.explicitHeightPx = keyboardView.getEffectiveHeightPx()
@@ -356,13 +444,7 @@ class OpenSwiftIME : InputMethodService() {
             keyboardInputView.setBackgroundColor(currentTheme.background)
         }
         applyInputProfile()
-        if (settings.clipboardEnabled && isSelectedIme()) {
-            registerClipListenerIfNeeded()
-            clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
-            clipboardView?.refresh(resetScrollPosition = false)
-        } else {
-            unregisterClipListener()
-        }
+        captureClipboardIfActive(privateField = isPasswordField(info))
         shiftActive = false // Always start with small / lowercase letters as requested
         symbolsActive = false
         emojiMode = false
@@ -389,9 +471,7 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
-        if (!isSelectedIme() || !settings.clipboardEnabled) {
-            unregisterClipListener()
-        }
+        captureClipboardIfActive(privateField = false)
         privacyModeActive = false
         if (isListeningVoice) {
             stopVoiceTyping()
@@ -412,20 +492,12 @@ class OpenSwiftIME : InputMethodService() {
 
     override fun onWindowShown() {
         super.onWindowShown()
-        if (settings.clipboardEnabled && isSelectedIme()) {
-            registerClipListenerIfNeeded()
-            clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
-            clipboardView?.refresh(resetScrollPosition = false)
-        } else {
-            unregisterClipListener()
-        }
+        captureClipboardIfActive(privateField = false)
     }
 
     override fun onWindowHidden() {
         super.onWindowHidden()
-        if (!isSelectedIme() || !settings.clipboardEnabled) {
-            unregisterClipListener()
-        }
+        captureClipboardIfActive(privateField = false)
         privacyModeActive = false
         if (isListeningVoice) {
             stopVoiceTyping()
@@ -726,12 +798,9 @@ class OpenSwiftIME : InputMethodService() {
     }
 
     private fun showClipboardView() {
-        if (isSelectedIme() && settings.clipboardEnabled) {
-            registerClipListenerIfNeeded()
-            clipboard.captureSystem(this, enabled = true, privateField = privacyModeActive)
-        }
         clipboardMode = true
         val inputView = getOrCreateClipboardInputView()
+        captureClipboardIfActive(privateField = false)
         if (::keyboardView.isInitialized) {
             clipboardView?.explicitHeightPx = keyboardView.getEffectiveHeightPx()
         }
@@ -1109,6 +1178,12 @@ class OpenSwiftIME : InputMethodService() {
     }
 
     override fun onDestroy() {
+        defaultImeObserver?.let {
+            try {
+                contentResolver.unregisterContentObserver(it)
+            } catch (_: Exception) {}
+            defaultImeObserver = null
+        }
         unregisterClipListener()
         if (::keyboardView.isInitialized) {
             keyboardView.cleanUp()

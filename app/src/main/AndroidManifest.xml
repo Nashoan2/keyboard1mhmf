@@ -12,6 +12,9 @@
         <intent>
             <action android:name="android.speech.RecognizerIntent" />
         </intent>
+        <intent>
+            <action android:name="android.view.InputMethod" />
+        </intent>
     </queries>
 
     <application

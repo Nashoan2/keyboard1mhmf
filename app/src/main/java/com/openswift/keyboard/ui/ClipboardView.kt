@@ -37,6 +37,7 @@ class ClipboardView @JvmOverloads constructor(
     var onItemSelected: ((String) -> Unit)? = null
     var onClose: (() -> Unit)? = null
     var onReturnToKeyboard: (() -> Unit)? = null
+    var onHide: (() -> Unit)? = null
 
     var clipboard = ClipboardHistory(ctx)
     var settings: com.openswift.keyboard.data.Settings? = null
@@ -958,7 +959,8 @@ class ClipboardView @JvmOverloads constructor(
 
                         if (hideBounds.contains(x, y)) {
                             resetScroll()
-                            onClose?.invoke()
+                            vibrateFeedback()
+                            (onHide ?: onClose)?.invoke()
                             velocityTracker?.recycle()
                             velocityTracker = null
                             return true
